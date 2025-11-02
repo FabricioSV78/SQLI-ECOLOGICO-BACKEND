@@ -94,7 +94,7 @@ def analyze_code(parsed_data):
     if vulnerable:
         print(f"\n🚨 VULNERABILIDADES DETECTADAS:")
         for i, vuln in enumerate(vulnerable, 1):
-            query = vuln.get('signature') or vuln.get('sql', '')
+            consulta = vuln.get('signature') or vuln.get('sql', '')
             print(f"   {i}. {query[:80]}{'...' if len(query) > 80 else ''}")
     
     print("📊" + "="*78 + "📊\n")

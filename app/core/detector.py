@@ -86,38 +86,38 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
         if db and user_id:
             # Buscar el proyecto en la BD
             if project_id.isdigit():
-                project = db.query(Project).filter(Project.id == int(project_id), Project.user_id == user_id).first()
+                proyecto = db.query(Project).filter(Project.id == int(project_id), Project.usuario_id == user_id).first()
             else:
-                project = db.query(Project).filter(Project.name == project_id, Project.user_id == user_id).first()
+                proyecto = db.query(Project).filter(Project.nombre == project_id, Project.usuario_id == user_id).first()
             
             if project:
                 # Guardar solo archivos que contienen vulnerabilidades
                 archivos_con_vulnerabilidades = set()
                 
                 for consulta in vulnerables:
-                    file_path = consulta.get('file', '')
+                    ruta_archivo = consulta.get('file', '')
                     if file_path:
                         archivos_con_vulnerabilidades.add(file_path)
                         
                         # Guardar la vulnerabilidad
-                        vulnerability = Vulnerability(
-                            project_id=project.id,
-                            file=file_path,
-                            line=consulta.get('line', 0),
-                            query=consulta.get('sql') or consulta.get('signature', ''),
-                            prediction='vulnerable'
+                        vulnerability = Vulnerabilidad(
+                            proyecto_id =project.id,
+                            archivo =file_path,
+                            linea =consulta.get('line', 0),
+                            consulta =consulta.get('sql') or consulta.get('signature', ''),
+                            prediccion ='vulnerable'
                         )
                         db.add(vulnerability)
                 
                 # Guardar archivos que contienen vulnerabilidades (si no existen ya)
                 for file_path in archivos_con_vulnerabilidades:
                     existing_file = db.query(ProjectFile).filter(
-                        ProjectFile.project_id == project.id,
-                        ProjectFile.filepath == file_path
+                        ProjectFile.proyecto_id == project.id,
+                        ProjectFile.ruta_archivo == file_path
                     ).first()
                     
                     if not existing_file:
-                        filename = os.path.basename(file_path)
+                        nombre_archivo = os.path.basename(file_path)
                         
                         # Leer el contenido del archivo
                         file_content = ""
@@ -128,11 +128,11 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
                         except Exception as e:
                             file_content = f"Error al leer el archivo: {str(e)}"
                         
-                        project_file = ProjectFile(
-                            project_id=project.id,
-                            filename=filename,
-                            filepath=file_path,
-                            content=file_content
+                        project_file = ArchivoProyecto(
+                            proyecto_id =project.id,
+                            nombre_archivo =filename,
+                            ruta_archivo =file_path,
+                            contenido =file_content
                         )
                         db.add(project_file)
                 

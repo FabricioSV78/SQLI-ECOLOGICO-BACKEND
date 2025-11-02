@@ -38,7 +38,7 @@ class SQLListener(JavaParserListener):
                         "method": method,
                         "sql": sql_query,
                         "params": params,
-                        "line": ctx.start.line
+                        "line": ctx.start.linea
                     })
 
     def enterAnnotation(self, ctx: JavaParser.AnnotationContext):
@@ -58,7 +58,7 @@ class SQLListener(JavaParserListener):
                         "sql": sql_query,
                         "safe_params": safe_params,
                         "unsafe_params": unsafe_params,
-                        "line": ctx.start.line
+                        "line": ctx.start.linea
                     })
 
 def parse_xml_mybatis(file_path):
@@ -68,7 +68,7 @@ def parse_xml_mybatis(file_path):
     results = []
     try:
         with open(file_path, encoding="utf-8") as f:
-            content = f.read()
+            contenido = f.read()
             # Busca etiquetas <select>, <insert>, <update>, <delete>
             for tag in ["select", "insert", "update", "delete"]:
                 for match in re.finditer(rf'<{tag}[^>]*>([\s\S]*?)</{tag}>', content, re.IGNORECASE):
@@ -83,7 +83,7 @@ def parse_xml_mybatis(file_path):
                         "unsafe_params": unsafe_params
                     })
     except Exception as e:
-        print(f"[ERROR] No se pudo parsear XML MyBatis {file_path}: {e}", file=sys.stderr)
+        print(f"[ERROR] No se pudo parsear XML MyBatis {file_path}: {e}", archivo =sys.stderr)
     return results
 
 
@@ -176,7 +176,7 @@ def parse_file(file_path: str):
                             "line": idx + 1
                         })
     except Exception as e:
-        print(f"[ERROR] No se pudo analizar por texto plano {file_path}: {e}", file=sys.stderr)
+        print(f"[ERROR] No se pudo analizar por texto plano {file_path}: {e}", archivo =sys.stderr)
 
     return queries
 
@@ -208,7 +208,7 @@ def parse_project(project_id: str, project_path: str = "uploads/"):
                             "queries": queries
                         })
                 except Exception as e:
-                    print(f"[ERROR] No se pudo parsear {java_file}: {e}", file=sys.stderr)
+                    print(f"[ERROR] No se pudo parsear {java_file}: {e}", archivo =sys.stderr)
             elif file.endswith(".xml"):
                 xml_file = os.path.join(root, file)
                 print(f"[DEBUG] Procesando archivo XML: {xml_file}")

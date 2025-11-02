@@ -2,7 +2,7 @@ import json
 import os
 from app.config.config import settings  #  Importamos configuración centralizada
 
-def generate_report(project_id: str, results: dict):
+def generar_reporte(project_id: str, results: dict):
     """
     Genera un archivo JSON con los resultados del análisis.
     """

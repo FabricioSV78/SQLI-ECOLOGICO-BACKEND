@@ -8,60 +8,96 @@ from app.services.db_service import get_db
 from app.services.visualizar_grafo_service import visualizar_grafo
 from app.services.analysis_service import get_project_analysis_results, get_project_vulnerability_summary
 from app.services.analysis_metrics_service import AnalysisMetricsService, AnalysisTimer
+from app.services.audit_logger import log_user_action, AuditAction, AuditResult
 from app.models.vulnerability import Vulnerability
 import os
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 @router.get("/{project_id}")
-def analyze_project(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+def analizar_proyecto(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Ejecuta el análisis de un proyecto y guarda vulnerabilidades en BD.
     También registra las métricas de análisis automáticamente.
     """
-    # Inicializar servicios
-    metrics_service = AnalysisMetricsService(db)
-    
-    # Medir tiempo de análisis
-    with AnalysisTimer() as timer:
-        # Usar siempre la ruta absoluta de uploads
-        upload_dir = settings.UPLOAD_DIR
-        results = detector.run_analysis(project_id, upload_dir, db, current_user.id)
-    
-    # Calcular métricas después del análisis
-    analysis_time = timer.get_elapsed_time()
-    
-    # Contar vulnerabilidades detectadas
-    vulnerable_count = db.query(Vulnerability).filter(
-        Vulnerability.project_id == int(project_id),
-        Vulnerability.prediction == 'vulnerable'
-    ).count()
-    
-    # Guardar métricas en la base de datos
     try:
-        metrics = metrics_service.create_metrics(
-            id_proyecto=int(project_id),
-            tiempo_analisis=analysis_time,
-            vulnerabilidades_detectadas=vulnerable_count
-        )
+        # Inicializar servicios
+        metrics_service = AnalysisMetricsService(db)
         
-        # Agregar información de métricas a la respuesta
-        results["metricas_analisis"] = {
-            "id": metrics.id,
-            "tiempo_analisis": metrics.tiempo_analisis,
-            "costo": metrics.costo,
-            "detecciones_correctas": metrics.detecciones_correctas,
-            "vulnerabilidades_detectadas": metrics.vulnerabilidades_detectadas,
-            "total_archivos_analizados": metrics.total_archivos_analizados,
-            "porcentaje_vulnerabilidades": metrics.porcentaje_vulnerabilidades,
-            "precision": metrics.precision
-        }
+        # Medir tiempo de análisis
+        with AnalysisTimer() as timer:
+            # Usar siempre la ruta absoluta de uploads
+            upload_dir = settings.UPLOAD_DIR
+            results = detector.run_analysis(project_id, upload_dir, db, current_user.id)
+        
+        # Calcular métricas después del análisis
+        analysis_time = timer.get_elapsed_time()
+        
+        # Contar vulnerabilidades detectadas
+        vulnerable_count = db.query(Vulnerability).filter(
+            Vulnerability.proyecto_id == int(project_id),
+            Vulnerability.prediccion == 'vulnerable'
+        ).count()
+        
+        # 📝 SRF5: Log de análisis exitoso
+        if settings.AUDIT_ENABLED:
+            log_user_action(
+                user_id=current_user.id,
+                username=current_user.correo,
+                action=AuditAction.ANALYSIS,
+                result=AuditResult.SUCCESS,
+                details={
+                    "project_id": project_id,
+                    "analysis_time_seconds": round(analysis_time, 2),
+                    "vulnerabilities_found": vulnerable_count,
+                    "files_analyzed": len(results.get('files', [])),
+                    "total_lines_analyzed": sum(f.get('lines_count', 0) for f in results.get('files', []))
+                },
+                audit_dir=settings.AUDIT_DIR
+            )
+        
+        # Guardar métricas en la base de datos
+        try:
+            metrics = metrics_service.create_metrics(
+                id_proyecto=int(project_id),
+                tiempo_analisis=analysis_time,
+                vulnerabilidades_detectadas=vulnerable_count
+            )
+            
+            # Agregar información de métricas a la respuesta
+            results["metricas_analisis"] = {
+                "id": metrics.id,
+                "tiempo_analisis": metrics.tiempo_analisis,
+                "costo": metrics.costo,
+                "detecciones_correctas": metrics.detecciones_correctas,
+                "vulnerabilidades_detectadas": metrics.vulnerabilidades_detectadas,
+                "total_archivos_analizados": metrics.total_archivos_analizados,
+                "porcentaje_vulnerabilidades": metrics.porcentaje_vulnerabilidades,
+                "precision": metrics.precision
+            }
+            
+        except Exception as e:
+            # Si hay error guardando métricas, no fallar el análisis
+            results["error_metricas"] = f"Error guardando métricas: {str(e)}"
+        
+        return results
         
     except Exception as e:
-        # Si hay error guardando métricas, no fallar el análisis
-        results["error_metricas"] = f"Error guardando métricas: {str(e)}"
-    
-    return results
+        # 📝 SRF5: Log de análisis fallido
+        if settings.AUDIT_ENABLED:
+            log_user_action(
+                user_id=current_user.id,
+                username=current_user.correo,
+                action=AuditAction.ANALYSIS,
+                result=AuditResult.ERROR,
+                details={
+                    "project_id": project_id,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                },
+                audit_dir=settings.AUDIT_DIR
+            )
+        raise e
 
 @router.get("/{project_id}/graph")
 def get_graph(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
@@ -75,13 +111,57 @@ def get_graph(project_id: str, current_user = Depends(get_current_user), db: Ses
         image_path = f"/tmp/{project_id}_graph.png"
         visualizar_grafo(flow_graph, save_path=image_path)
         if os.path.exists(image_path):
+            # 📝 SRF5: Log de descarga exitosa del grafo
+            if settings.AUDIT_ENABLED:
+                log_user_action(
+                    user_id=current_user.id,
+                    username=current_user.correo,
+                    action=AuditAction.DOWNLOAD,
+                    result=AuditResult.SUCCESS,
+                    details={
+                        "project_id": project_id,
+                        "download_type": "vulnerability_graph",
+                        "file_format": "png",
+                        "file_path": image_path
+                    },
+                    audit_dir=settings.AUDIT_DIR
+                )
             return FileResponse(image_path, media_type="image/png")
         else:
+            # 📝 SRF5: Log de error en descarga
+            if settings.AUDIT_ENABLED:
+                log_user_action(
+                    user_id=current_user.id,
+                    username=current_user.correo,
+                    action=AuditAction.DOWNLOAD,
+                    result=AuditResult.ERROR,
+                    details={
+                        "project_id": project_id,
+                        "download_type": "vulnerability_graph",
+                        "error": "No se pudo generar la imagen del grafo"
+                    },
+                    audit_dir=settings.AUDIT_DIR
+                )
             return {"status": "error", "message": "No se pudo generar la imagen del grafo."}
+    
+    # 📝 SRF5: Log de descarga fallida (no hay grafo)
+    if settings.AUDIT_ENABLED:
+        log_user_action(
+            user_id=current_user.id,
+            username=current_user.correo,
+            action=AuditAction.DOWNLOAD,
+            result=AuditResult.FAILURE,
+            details={
+                "project_id": project_id,
+                "download_type": "vulnerability_graph",
+                "error": "No hay grafo para este proyecto"
+            },
+            audit_dir=settings.AUDIT_DIR
+        )
     return {"status": "error", "message": "No hay grafo para este proyecto."}
 
 @router.get("/{project_id}/results")
-def get_analysis_results(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+def obtener_resultados_analisis(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Obtiene los resultados detallados del análisis de un proyecto desde la base de datos.
     Incluye archivos vulnerables, código completo, fragmentos vulnerables y predicciones.
@@ -194,7 +274,7 @@ def update_metrics_detecciones_correctas(
         }
     }
 
-@router.get("/metrics/all")
+@router.get("/all-metrics")
 def get_all_metrics(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
     """
     Obtiene todas las métricas de análisis de todos los proyectos del usuario.

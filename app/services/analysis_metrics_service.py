@@ -31,7 +31,7 @@ class AnalysisMetricsService:
         Returns:
             AnalysisMetrics: La entrada de métricas creada
         """
-        metrics = AnalysisMetrics(
+        metrics = MetricasAnalisis(
             id_proyecto=id_proyecto,
             tiempo_analisis=tiempo_analisis,
             vulnerabilidades_detectadas=vulnerabilidades_detectadas,

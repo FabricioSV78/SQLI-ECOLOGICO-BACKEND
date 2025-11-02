@@ -3,18 +3,20 @@ from sqlalchemy.orm import relationship
 from app.services.db_service import Base
 import datetime
 
-class Project(Base):
-    __tablename__ = "projects"
+class Proyecto(Base):
+    __tablename__ = "proyectos"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    description = Column(String, nullable=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    nombre = Column(String, nullable=False)
+    descripcion = Column(String, nullable=True)
+    usuario_id = Column(Integer, ForeignKey("usuarios.id"))
+    fecha_creacion = Column(DateTime, default=datetime.datetime.utcnow)
 
     # Relaciones
-    owner = relationship("User", back_populates="projects")
-    files = relationship("ProjectFile", back_populates="project", cascade="all, delete-orphan")
-    vulnerabilities = relationship("Vulnerability", back_populates="project", cascade="all, delete-orphan")
-    analysis_metrics = relationship("AnalysisMetrics", back_populates="project", cascade="all, delete-orphan")
+    propietario = relationship("Usuario", back_populates="proyectos")
+    archivos = relationship("ProjectFile", back_populates="proyecto", cascade="all, delete-orphan")
+    vulnerabilidades = relationship("Vulnerabilidad", back_populates="proyecto", cascade="all, delete-orphan")
+    metricas_analisis = relationship("MetricasAnalisis", back_populates="proyecto", cascade="all, delete-orphan")
 
+# Alias para compatibilidad hacia atrás
+Project = Proyecto

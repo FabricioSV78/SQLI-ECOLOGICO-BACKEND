@@ -2,11 +2,11 @@ from sqlalchemy import Column, Integer, Float, ForeignKey
 from sqlalchemy.orm import relationship
 from app.services.db_service import Base
 
-class AnalysisMetrics(Base):
+class MetricasAnalisis(Base):
     __tablename__ = "metricas_analisis"
 
     id = Column(Integer, primary_key=True, index=True)
-    id_proyecto = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    proyecto_id = Column(Integer, ForeignKey("proyectos.id", ondelete="CASCADE"), nullable=False)
     tiempo_analisis = Column(Float, nullable=False)  # Tiempo en segundos
     costo = Column(Float, nullable=False)  # Costo calculado (tiempo x 5)
     detecciones_correctas = Column(Integer, nullable=True)  # Detecciones correctas (vacío, manual)
@@ -14,7 +14,7 @@ class AnalysisMetrics(Base):
     precision = Column(Float, nullable=True)  # Precisión (vacía inicialmente)
 
     # Relación con el proyecto
-    project = relationship("Project", back_populates="analysis_metrics")
+    proyecto = relationship("Proyecto", back_populates="metricas_analisis")
 
     @property
     def total_archivos_analizados(self):
@@ -35,4 +35,10 @@ class AnalysisMetrics(Base):
         return self.costo
 
     def __repr__(self):
-        return f"<MetricasAnalisis(id_proyecto={self.id_proyecto}, tiempo={self.tiempo_analisis}s, costo=${self.costo})>"
+        return f"<MetricasAnalisis(proyecto_id={self.proyecto_id}, tiempo={self.tiempo_analisis}s, costo=${self.costo})>"
+
+# Alias para compatibilidad hacia atrás
+MetricasAnalisis = MetricasAnalisis
+
+# Alias en inglés para compatibilidad con importaciones externas
+AnalysisMetrics = MetricasAnalisis
