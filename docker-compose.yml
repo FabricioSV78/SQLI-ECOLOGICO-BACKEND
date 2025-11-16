@@ -1,0 +1,54 @@
+version: '3.8'
+
+services:
+  app:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@db:5432/sqli_detector
+      - SECRET_KEY=dev-secret-key-change-in-production
+    depends_on:
+      - db
+    networks:
+      - app-network
+    volumes:
+      - ./app:/app
+    restart: unless-stopped
+
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: sqli_detector
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    restart: unless-stopped
+
+  # Servicio para testing con base de datos de prueba
+  test-db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: test_sqli_detector
+      POSTGRES_USER: test_user
+      POSTGRES_PASSWORD: test_password
+    ports:
+      - "5433:5432"
+    networks:
+      - app-network
+    profiles:
+      - testing
+
+volumes:
+  postgres_data:
+
+networks:
+  app-network:
+    driver: bridge
