@@ -23,7 +23,8 @@ else
 fi
 
 # Descargar modelo en runtime si no existe (opcional) - configurar MODEL_URL en Render
-MODEL_DIR="./core/MODELO_ML"
+## If package `app` is copied to /app/app in the container, model directory is inside that package
+MODEL_DIR="./app/core/MODELO_ML"
 MODEL_FILE="${MODEL_FILE:-model.safetensors}"
 MODEL_PATH="$MODEL_DIR/$MODEL_FILE"
 

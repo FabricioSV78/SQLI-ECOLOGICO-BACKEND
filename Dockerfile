@@ -43,13 +43,17 @@ COPY --from=builder /install /usr/local
 # Crear usuario no privilegiado
 RUN groupadd -r appuser && useradd -r -g appuser appuser
 
+
+# Establecer directorio raíz de la app
 WORKDIR /app
 
-# Copiar el código de la aplicación (los modelos grandes deberían estar en .dockerignore)
-COPY app/ .
+# Copiar el paquete `app` dentro de /app/app para que la importación `import app` funcione
+COPY app/ /app/app
+# Copiar el script de inicio en la raíz /app/start.sh
+COPY app/start.sh /app/start.sh
 
 # Hacer ejecutable el script de inicio y ajustar permisos
-RUN chmod +x start.sh && chown -R appuser:appuser /app
+RUN chmod +x /app/start.sh && chown -R appuser:appuser /app
 
 USER appuser
 
