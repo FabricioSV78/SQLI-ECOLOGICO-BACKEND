@@ -64,3 +64,9 @@ tmp/
 temp/
 
 node_modules
+
+# Ignorar artefactos y datos pesados
+data/
+models/
+*.tar.gz
+*.zip
