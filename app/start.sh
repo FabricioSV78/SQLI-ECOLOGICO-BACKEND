@@ -65,4 +65,6 @@ fi
 
 # Iniciar la aplicación
 echo "🎯 Iniciando servidor..."
-exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# La aplicación principal está en el paquete `app` (copiado a /app/app),
+# por eso importamos `app.main:app` en lugar de `main:app`.
+exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}
