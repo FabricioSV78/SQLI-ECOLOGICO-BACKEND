@@ -6,7 +6,8 @@ uvicorn==0.32.1
 python-dotenv==1.0.0
 
 # Dependencias de la aplicación
-fpdf==2.7.9
+# `fpdf` v2+ is provided by the `fpdf2` package on PyPI. Use that name so pip can find the 2.x releases.
+fpdf2==2.7.9
 antlr4-python3-runtime==4.13.2
 networkx==3.4.2
 matplotlib==3.9.2
