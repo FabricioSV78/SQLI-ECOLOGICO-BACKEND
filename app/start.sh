@@ -23,4 +23,5 @@ fi
 
 # Iniciar la aplicación
 echo "🎯 Iniciando servidor..."
-exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# Ejecutar uvicorn apuntando al módulo de paquete `app` para que los imports funcionen
+exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}

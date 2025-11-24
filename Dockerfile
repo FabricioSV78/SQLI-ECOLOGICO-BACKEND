@@ -25,11 +25,11 @@ COPY app/requirements.txt .
 # Instalar dependencias de Python
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
-COPY app/ .
+# Copiar el resto del repositorio (coloca la carpeta `app/` dentro de `/app`)
+COPY . .
 
-# Hacer ejecutable el script de inicio
-RUN chmod +x start.sh
+# Hacer ejecutable el script de inicio (está en `app/start.sh` dentro de la imagen)
+RUN chmod +x app/start.sh
 
 # Cambiar ownership de archivos al usuario no privilegiado
 RUN chown -R appuser:appuser /app
@@ -42,5 +42,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-# Comando por defecto - Usar el script de inicio
-CMD ["./start.sh"]
+# Comando por defecto - Usar el script de inicio dentro de la carpeta `app`
+CMD ["./app/start.sh"]
