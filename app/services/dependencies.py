@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
@@ -7,7 +8,24 @@ from app.models.user_role import UserRole
 from app.services.db_service import get_db
 from app.config.config import settings  # Ahora importamos desde config.py
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/iniciar-sesion")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/iniciar-sesion", auto_error=False)
+
+
+def get_optional_user(token: Optional[str] = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> Optional[Usuario]:
+    """
+    Devuelve el usuario autenticado si el token es válido, o None si no hay token.
+    """
+    if not token:
+        return None
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            return None
+        user = db.query(Usuario).filter(Usuario.correo == email).first()
+        return user
+    except Exception:
+        return None
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     """
@@ -26,16 +44,20 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     """
     import logging
     logger = logging.getLogger(__name__)
-    
+
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="No se pudieron validar las credenciales",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+    # Si no viene token (auto_error=False devuelve None), rechazamos
+    if not token or token in ("null", "undefined", ""):
+        logger.error("❌ No se proporcionó token")
+        raise credentials_exception
+
     try:
-        logger.info(f"🔍 Validando token: {token[:50]}...")
-        
+        logger.info(f"🔍 Validando token: {str(token)[:50]}...")
+
         # Decodificar token JWT
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
         logger.info(f"📋 Payload decodificado: {payload}")

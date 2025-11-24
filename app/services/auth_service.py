@@ -2,9 +2,7 @@ from datetime import datetime, timedelta
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
-from app.models.user import User
 from app.models.user_role import UserRole, RolUsuario
-from app.services.db_service import get_db
 from app.config.config import settings  # ahora usamos config.py
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -119,7 +117,7 @@ def create_user_token(user) -> str:
     return crear_token_usuario(user)
 
 
-def registrar_usuario(db: Session, correo: str, contrasena: str, rol: RolUsuario = UserRole.ESTUDIANTE):
+def registrar_usuario(db: Session, correo: str, contrasena: str, rol: RolUsuario = UserRole.ESTUDIANTE, nombre_completo: str = None, created_by: int = None):
     """
     Registra un nuevo usuario en el sistema con rol especificado.
     Implementa el requerimiento SRF2 de control de acceso basado en roles.
@@ -129,6 +127,7 @@ def registrar_usuario(db: Session, correo: str, contrasena: str, rol: RolUsuario
         correo (str): Email del usuario
         contrasena (str): Contraseña en texto plano
         rol (UserRole): Rol del usuario (STUDENT por defecto)
+        nombre_completo (str): Nombre completo del usuario (opcional)
         
     Returns:
         Usuario: Usuario creado
@@ -147,11 +146,14 @@ def registrar_usuario(db: Session, correo: str, contrasena: str, rol: RolUsuario
     # Crear hash de la contraseña
     contrasena_hash = obtener_hash_contrasena(contrasena)
     
-    # Crear nuevo usuario con rol
+    # Crear nuevo usuario con rol y nombre completo
     nuevo_usuario = Usuario(
         correo=correo,
         contrasena=contrasena_hash,
-        rol=rol
+        rol=rol,
+        nombre_completo=nombre_completo,
+        activo=True,  # Los usuarios se crean activos por defecto
+        created_by=created_by
     )
     
     # Guardar en base de datos
@@ -162,9 +164,9 @@ def registrar_usuario(db: Session, correo: str, contrasena: str, rol: RolUsuario
     return nuevo_usuario
 
 # Función de compatibilidad en inglés que llama a la función principal en español
-def register_user(db: Session, email: str, password: str, role: RolUsuario = UserRole.ESTUDIANTE):
+def register_user(db: Session, email: str, password: str, role: RolUsuario = UserRole.ESTUDIANTE, full_name: str = None):
     # Llamar a la función principal con parámetros en español
-    return registrar_usuario(db, email, password, role)
+    return registrar_usuario(db, email, password, role, full_name)
 
 
 def obtener_rol_usuario_desde_token(token: str) -> UserRole:

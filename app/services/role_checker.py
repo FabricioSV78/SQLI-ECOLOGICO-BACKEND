@@ -12,7 +12,6 @@ Implementa el requerimiento SRF2: Control de acceso diferenciado para reportes.
 
 from fastapi import HTTPException, status
 from app.models.user import User
-from app.models.user_role import UserRole
 from app.models.project import Project
 from sqlalchemy.orm import Session
 

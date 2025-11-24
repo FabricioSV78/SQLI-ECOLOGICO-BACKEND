@@ -5,11 +5,9 @@ from app.models.dpa_agreement import (
     DataLocation, 
     CloudProvider
 )
-from app.services.audit_logger import log_user_action, AuditAction, AuditResult
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from datetime import datetime, date, timedelta
-from app.config.config import settings
 import json
 
 
@@ -120,7 +118,7 @@ class DpaManagementService:
             self.db.refresh(dpa)
             
             # Log de auditoría
-            if settings.AUDIT_ENABLED:
+            """ if settings.AUDIT_ENABLED:
                 log_user_action(
                     usuario_id =user_id,
                     nombre_usuario =f"admin_{user_id}",
@@ -136,13 +134,13 @@ class DpaManagementService:
                     },
                     audit_dir=settings.AUDIT_DIR
                 )
-            
+             """
             return dpa
             
         except Exception as e:
             self.db.rollback()
             # Log de error
-            if settings.AUDIT_ENABLED:
+            """ if settings.AUDIT_ENABLED:
                 log_user_action(
                     usuario_id =user_id,
                     nombre_usuario =f"admin_{user_id}",
@@ -154,7 +152,7 @@ class DpaManagementService:
                         "error": str(e)
                     },
                     audit_dir=settings.AUDIT_DIR
-                )
+                ) """
             raise HTTPException(
                 status_code=500,
                 detail=f"Error creando DPA: {str(e)}"
@@ -164,9 +162,9 @@ class DpaManagementService:
         """Obtiene todos los DPA registrados"""
         consulta = self.db.query(DataProcessingAgreement)
         if active_only:
-            consulta = query.filter(DataProcessingAgreement.is_active == True)
+            consulta = consulta.filter(DataProcessingAgreement.is_active == True)
         
-        return query.order_by(DataProcessingAgreement.fecha_creacion.desc()).all()
+        return consulta.order_by(DataProcessingAgreement.fecha_creacion.desc()).all()
     
     def get_dpa_by_id(self, dpa_id: int) -> Optional[DataProcessingAgreement]:
         """Obtiene un DPA específico por ID"""
@@ -230,7 +228,7 @@ class DpaManagementService:
             self.db.refresh(dpa)
             
             # Log de auditoría
-            if settings.AUDIT_ENABLED:
+            """ if settings.AUDIT_ENABLED:
                 log_user_action(
                     usuario_id =user_id,
                     nombre_usuario =f"admin_{user_id}",
@@ -244,7 +242,7 @@ class DpaManagementService:
                         "new_status": new_status.value
                     },
                     audit_dir=settings.AUDIT_DIR
-                )
+                ) """
             
             return dpa
             
@@ -282,7 +280,7 @@ class DpaManagementService:
             self.db.refresh(dpa)
             
             # Log de auditoría
-            if settings.AUDIT_ENABLED:
+            """ if settings.AUDIT_ENABLED:
                 log_user_action(
                     usuario_id =user_id,
                     nombre_usuario =f"admin_{user_id}",
@@ -295,7 +293,7 @@ class DpaManagementService:
                         "updated_fields": list(update_fields.keys())
                     },
                     audit_dir=settings.AUDIT_DIR
-                )
+                ) """
             
             return dpa
             
@@ -319,7 +317,7 @@ class DpaManagementService:
             self.db.commit()
             
             # Log de auditoría
-            if settings.AUDIT_ENABLED:
+            """ if settings.AUDIT_ENABLED:
                 log_user_action(
                     usuario_id =user_id,
                     nombre_usuario =f"admin_{user_id}",
@@ -331,7 +329,7 @@ class DpaManagementService:
                         "provider_name": dpa.provider_name
                     },
                     audit_dir=settings.AUDIT_DIR
-                )
+                ) """
             
             return True
             

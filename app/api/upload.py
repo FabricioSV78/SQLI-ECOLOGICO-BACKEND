@@ -6,7 +6,6 @@ from app.services.db_service import get_db
 from app.models.project import Proyecto
 from app.services.audit_logger import log_user_action, AuditAction, AuditResult
 from app.config.config import settings
-import os
 
 router = APIRouter(prefix="/upload", tags=["upload"])
 
@@ -113,10 +112,14 @@ def upload_project(
                     audit_dir=settings.AUDIT_DIR
                 )
             
+            # Extraer las amenazas encontradas
+            threats_found = e.detail.get('scan_result', {}).get('threats_found', [])
+            
             return {
                 "error": "SRF3_SECURITY_VIOLATION", 
                 "message": "Archivo rechazado por escaneo de seguridad",
-                "details": e.detail.get('details', 'Binarios detectados'),
+                "details": threats_found,  # Enviar array de amenazas directamente
+                "threats_count": len(threats_found),
                 "status": "quarantined",
                 "security_scan": "❌ SRF3: Failed - Threats detected"
             }

@@ -52,6 +52,29 @@ def classify_query(query):
     
     return resultado
 
+
+def classify_queries(queries_list, batch_size=16):
+    """
+    Clasifica una lista de consultas en lotes para reducir overhead de tokenización
+    y llamadas al modelo (mucho más eficiente que procesar consulta por consulta).
+    Devuelve una lista de resultados ('Consulta segura' o 'Posible SQLi') en el mismo orden.
+    """
+    results = []
+    n = len(queries_list)
+    for i in range(0, n, batch_size):
+        batch = queries_list[i:i+batch_size]
+        # Tokenizar en batch
+        inputs = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=128)
+        inputs = {k: v.to(device) for k, v in inputs.items()}
+        with torch.no_grad():
+            outputs = model(**inputs)
+            probs = torch.softmax(outputs.logits, dim=1)
+            labels = torch.argmax(probs, dim=1).cpu().tolist()
+            # confianza opcional: confidences = torch.max(probs, dim=1)[0].cpu().tolist()
+        for label in labels:
+            results.append("Posible SQLi" if label == 1 else "Consulta segura")
+    return results
+
 def analyze_code(parsed_data):
     safe = []
     vulnerable = []
@@ -61,26 +84,35 @@ def analyze_code(parsed_data):
     print("🔬 INICIANDO ANÁLISIS COMPLETO DEL CÓDIGO")
     print("🚀" + "="*78 + "🚀")
     
-    for archivo in parsed_data:
+    # Recolectar todas las firmas para clasificación en batch
+    all_signatures = []
+    signature_map = []  # tuples (archivo_index, consulta_index)
+    for archivo_idx, archivo in enumerate(parsed_data):
         archivo_nombre = archivo.get('file', 'archivo_desconocido')
         queries = archivo.get("queries", [])
         total_queries += len(queries)
-        
         if queries:
             print(f"\n📁 Analizando archivo: {archivo_nombre}")
             print(f"   📊 Consultas encontradas: {len(queries)}")
-        
-        for i, consulta in enumerate(queries, 1):
-            # Usar la firma completa si existe, si no usar el SQL
+        for consulta_idx, consulta in enumerate(queries):
             signature = consulta.get("signature") or consulta.get("sql", "")
-            
-            print(f"\n   🔍 Consulta {i}/{len(queries)}:")
-            resultado = classify_query(signature)
-            
-            if resultado == "Consulta segura":
-                safe.append(consulta)
-            else:
-                vulnerable.append(consulta)
+            all_signatures.append(signature)
+            signature_map.append((archivo_idx, consulta_idx))
+
+    # Clasificar en batch
+    if all_signatures:
+        batch_results = classify_queries(all_signatures, batch_size=16)
+    else:
+        batch_results = []
+
+    # Mapear resultados de vuelta a las estructuras y separar safe/vulnerable
+    for res_label, (archivo_idx, consulta_idx) in zip(batch_results, signature_map):
+        archivo = parsed_data[archivo_idx]
+        consulta = archivo.get('queries', [])[consulta_idx]
+        if res_label == "Consulta segura":
+            safe.append(consulta)
+        else:
+            vulnerable.append(consulta)
     
     # Resumen final
     print("\n" + "📊" + "="*78 + "📊")
@@ -95,7 +127,7 @@ def analyze_code(parsed_data):
         print(f"\n🚨 VULNERABILIDADES DETECTADAS:")
         for i, vuln in enumerate(vulnerable, 1):
             consulta = vuln.get('signature') or vuln.get('sql', '')
-            print(f"   {i}. {query[:80]}{'...' if len(query) > 80 else ''}")
+            print(f"   {i}. {consulta[:80]}{'...' if len(consulta) > 80 else ''}")
     
     print("📊" + "="*78 + "📊\n")
     

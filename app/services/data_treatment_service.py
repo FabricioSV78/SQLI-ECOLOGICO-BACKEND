@@ -5,7 +5,7 @@ from app.models.data_treatment_registry import (
     DataCategory, 
     RetentionPeriod
 )
-from app.services.audit_logger import AuditLogger, AuditAction, AuditResult
+from app.services.audit_logger import AuditAction, AuditResult
 from typing import List, Dict, Any, Optional
 from fastapi import HTTPException
 from datetime import datetime

@@ -8,15 +8,23 @@ load_dotenv(BASE_DIR / ".env")
 
 class Settings:
     # --- Base de Datos ---
-    DB_USER: str = os.getenv("DB_USER", "postgres")
-    DB_PASS: str = os.getenv("DB_PASS", "admin")
-    DB_HOST: str = os.getenv("DB_HOST", "localhost")
-    DB_PORT: str = os.getenv("DB_PORT", "5432")
-    DB_NAME: str = os.getenv("DB_NAME", "detector_sqli")
-
-    DATABASE_URL: str = (
-        f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    )
+    # Railway proporciona DATABASE_URL automáticamente
+    # Formato: postgresql://user:password@host:port/database
+    DATABASE_URL: str = os.getenv("DATABASE_URL")
+    
+    # Si no existe DATABASE_URL (desarrollo local), construir desde variables individuales
+    if not DATABASE_URL:
+        DB_USER: str = os.getenv("DB_USER", "postgres")
+        DB_PASS: str = os.getenv("DB_PASS", "Joseallain27")
+        DB_HOST: str = os.getenv("DB_HOST", "localhost")
+        DB_PORT: str = os.getenv("DB_PORT", "5432")
+        DB_NAME: str = os.getenv("DB_NAME", "detector_sqli")
+        
+        DATABASE_URL = f"postgresql://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    else:
+        # Railway usa postgres:// pero SQLAlchemy necesita postgresql://
+        if DATABASE_URL.startswith("postgres://"):
+            DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
     # --- Seguridad ---
     SECRET_KEY: str = os.getenv("SECRET_KEY", "SUPER_SECRET_KEY")
@@ -32,8 +40,20 @@ class Settings:
     ENCRYPTION_AT_REST_PROVIDER: str = "Railway PaaS"  # Delegado al proveedor
 
     # --- Rutas del sistema ---
+    # En Railway, usar rutas relativas al directorio de trabajo
     UPLOAD_DIR: str = os.getenv("UPLOAD_DIR", str(BASE_DIR / "uploads"))
     REPORTS_DIR: str = os.getenv("REPORTS_DIR", str(BASE_DIR / "reports"))
+    
+    # --- Puerto para Railway ---
+    PORT: int = int(os.getenv("PORT", 8000))
+    # --- Retención / eliminación automática de reportes ---
+    # Si se desea eliminar los reportes automáticamente después de descargarse,
+    # establecer REMOVE_REPORTS_AFTER_DOWNLOAD=true en .env
+    REMOVE_REPORTS_AFTER_DOWNLOAD: bool = os.getenv("REMOVE_REPORTS_AFTER_DOWNLOAD", "false").lower() == "true"
+    # Días por defecto para retener reportes antes de limpieza automática mediante cron/script
+    REPORT_RETENTION_DAYS: int = int(os.getenv("REPORT_RETENTION_DAYS", 1))
+    # --- Eliminación automática de archivos subidos después del análisis ---
+    REMOVE_UPLOADS_AFTER_ANALYSIS: bool = os.getenv("REMOVE_UPLOADS_AFTER_ANALYSIS", "true").lower() == "true"
     
     # --- SRF3: Escaneo de seguridad automático ---
     # Directorio para archivos en cuarentena (binarios detectados)

@@ -8,7 +8,7 @@ class MetricasAnalisis(Base):
     id = Column(Integer, primary_key=True, index=True)
     proyecto_id = Column(Integer, ForeignKey("proyectos.id", ondelete="CASCADE"), nullable=False)
     tiempo_analisis = Column(Float, nullable=False)  # Tiempo en segundos
-    costo = Column(Float, nullable=False)  # Costo calculado (tiempo x 5)
+    consumo_energetico_kwh = Column(Float, nullable=False)  # Consumo energético estimado en kWh
     detecciones_correctas = Column(Integer, nullable=True)  # Detecciones correctas (vacío, manual)
     vulnerabilidades_detectadas = Column(Integer, nullable=False, default=0)  # Vulnerabilidades detectadas
     precision = Column(Float, nullable=True)  # Precisión (vacía inicialmente)
@@ -29,13 +29,18 @@ class MetricasAnalisis(Base):
         # Se podría calcular diferente si se tiene el total de consultas analizadas
         return 100.0 if self.vulnerabilidades_detectadas > 0 else 0.0
 
-    def calcular_costo(self):
-        """Calcula el costo basado en el tiempo de análisis"""
-        self.costo = self.tiempo_analisis * 0.0000066
-        return self.costo
+    def calcular_consumo_energetico(self, power_watts: float = 10.0):
+        """Calcula el consumo energético estimado basado en el tiempo de análisis
+        
+        Args:
+            power_watts: Potencia estimada en watts (default: 10W)
+        """
+        # Energía (kWh) = Potencia (W) × Tiempo (h) / 1000
+        self.consumo_energetico_kwh = (power_watts * self.tiempo_analisis) / 3600.0
+        return self.consumo_energetico_kwh
 
     def __repr__(self):
-        return f"<MetricasAnalisis(proyecto_id={self.proyecto_id}, tiempo={self.tiempo_analisis}s, costo=${self.costo})>"
+        return f"<MetricasAnalisis(proyecto_id={self.proyecto_id}, tiempo={self.tiempo_analisis}s, consumo={self.consumo_energetico_kwh}kWh)>"
 
 # Alias para compatibilidad hacia atrás
 MetricasAnalisis = MetricasAnalisis

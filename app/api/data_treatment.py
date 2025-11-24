@@ -8,7 +8,6 @@ from app.services.audit_logger import log_user_action, AuditAction, AuditResult
 from app.config.config import settings
 from typing import List, Optional
 from pydantic import BaseModel
-from datetime import datetime
 
 
 router = APIRouter(prefix="/data-treatment", tags=["data-treatment"])
@@ -339,17 +338,58 @@ def get_available_enums():
     
     Útil para formularios y validaciones del frontend.
     """
+    # Mapeo de nombres amigables en español
+    legal_basis_names = {
+        "CONSENT": "Consentimiento del interesado",
+        "CONTRACT": "Ejecución de un contrato",
+        "LEGAL_OBLIGATION": "Obligación legal",
+        "VITAL_INTEREST": "Interés vital del interesado",
+        "PUBLIC_INTEREST": "Interés público o ejercicio de poderes públicos",
+        "LEGITIMATE_INTEREST": "Interés legítimo del responsable"
+    }
+    
+    data_category_names = {
+        "IDENTIFICATION": "Datos de identificación",
+        "CONTACT": "Datos de contacto",
+        "FINANCIAL": "Datos financieros",
+        "LOCATION": "Datos de ubicación",
+        "ACADEMIC": "Datos académicos",
+        "PROFESSIONAL": "Datos profesionales",
+        "TECHNICAL": "Datos técnicos",
+        "USAGE": "Datos de uso",
+        "SENSITIVE": "Datos sensibles"
+    }
+    
+    retention_period_names = {
+        "ONE_YEAR": "1 año",
+        "TWO_YEARS": "2 años",
+        "THREE_YEARS": "3 años",
+        "FIVE_YEARS": "5 años",
+        "TEN_YEARS": "10 años",
+        "PERMANENT": "Permanente (hasta solicitud de eliminación)",
+        "CUSTOM": "Personalizado"
+    }
+    
     return {
         "legal_bases": [
-            {"value": basis.value, "name": basis.nombre} 
+            {
+                "value": basis.value,
+                "name": legal_basis_names.get(basis.name, basis.name)
+            }
             for basis in LegalBasis
         ],
         "data_categories": [
-            {"value": category.value, "name": category.nombre}
+            {
+                "value": category.value,
+                "name": data_category_names.get(category.name, category.name)
+            }
             for category in DataCategory
         ],
         "retention_periods": [
-            {"value": period.value, "name": period.nombre}
+            {
+                "value": period.value,
+                "name": retention_period_names.get(period.name, period.name)
+            }
             for period in RetentionPeriod
         ]
     }

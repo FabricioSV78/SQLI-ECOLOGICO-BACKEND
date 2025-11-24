@@ -6,7 +6,6 @@ Registra acciones de usuario con integridad garantizada mediante hash.
 import json
 import hashlib
 import logging
-import os
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Optional, Any

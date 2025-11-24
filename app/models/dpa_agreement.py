@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, Enum, D
 from sqlalchemy.sql import func
 from app.services.db_service import Base
 import enum
-from datetime import datetime, date
+from datetime import date
 
 
 class DpaStatus(enum.Enum):
@@ -133,7 +133,6 @@ class DataProcessingAgreement(Base):
         """Días hasta el vencimiento"""
         return (self.expiry_date - date.today()).days
     
-    @property
     def is_expiring_soon(self, days_threshold: int = 30) -> bool:
         """Verifica si el DPA vence pronto"""
         return 0 <= self.days_until_expiry <= days_threshold

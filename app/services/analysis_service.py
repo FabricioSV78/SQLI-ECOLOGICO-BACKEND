@@ -1,7 +1,4 @@
 from sqlalchemy.orm import Session
-from app.models.project import Project
-from app.models.vulnerability import Vulnerability
-from app.models.project_file import ProjectFile
 from fastapi import HTTPException
 import os
 
