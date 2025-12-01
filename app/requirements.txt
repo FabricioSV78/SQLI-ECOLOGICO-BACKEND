@@ -6,7 +6,7 @@ uvicorn==0.32.1
 python-dotenv==1.0.0
 
 # Dependencias de la aplicación
-fpdf==2.7.9
+fpdf2==2.7.9
 antlr4-python3-runtime==4.13.2
 networkx==3.4.2
 matplotlib==3.9.2
