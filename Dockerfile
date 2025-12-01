@@ -17,23 +17,27 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Establecer directorio de trabajo
-WORKDIR /app
+WORKDIR /workspace
 
 # Copiar requirements primero para aprovechar el cache de Docker
-COPY app/requirements.txt .
+COPY app/requirements.txt /workspace/app/requirements.txt
 
 # Instalar dependencias de Python
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r /workspace/app/requirements.txt
 
 # Copiar el código de la aplicación
-COPY app/ .
+COPY app/ /workspace/app/
 
 # Hacer ejecutable el script de inicio
-RUN chmod +x start.sh
+RUN chmod +x /workspace/app/start.sh
 
 # Cambiar ownership de archivos al usuario no privilegiado
-RUN chown -R appuser:appuser /app
+RUN chown -R appuser:appuser /workspace
 USER appuser
+
+# Establecer PYTHONPATH para que encuentre el módulo app
+ENV PYTHONPATH=/workspace:$PYTHONPATH
+WORKDIR /workspace/app
 
 # Exponer puerto (Railway usa la variable PORT)
 EXPOSE 8000
