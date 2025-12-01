@@ -4,12 +4,10 @@ Valida archivos ZIP antes del análisis y rechaza/cuarentena binarios.
 """
 
 import zipfile
-import os
 import shutil
 import logging
-import mimetypes
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Tuple
 from datetime import datetime
 
 logger = logging.getLogger(__name__)

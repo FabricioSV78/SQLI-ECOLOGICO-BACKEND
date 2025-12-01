@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Enum
+from sqlalchemy import Column, Integer, String, DateTime, Enum, Boolean
 from sqlalchemy.orm import relationship
 from app.services.db_service import Base
 from app.models.user_role import UserRole
@@ -23,6 +23,12 @@ class Usuario(Base):
     # Campo rol para implementar SRF2 - control de acceso diferenciado
     rol = Column(Enum(UserRole), nullable=False, default=UserRole.ESTUDIANTE)
     fecha_creacion = Column(DateTime, default=datetime.datetime.utcnow)
+    # Nuevos campos para gestión de usuarios
+    activo = Column(Boolean, default=True, nullable=False)
+    nombre_completo = Column(String, nullable=True)
+    ultimo_acceso = Column(DateTime, nullable=True)
+    # Nuevo campo para rastrear el creador del usuario (docente)
+    created_by = Column(Integer, nullable=True, index=True)
 
     # Relaciones
     proyectos = relationship("Proyecto", back_populates="propietario", cascade="all, delete-orphan")

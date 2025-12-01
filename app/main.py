@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 import logging
 
 # Configuraciones y servicios
@@ -8,7 +9,7 @@ from app.config.config import settings
 from app.services.encryption_validator import verify_s_rnf2_compliance, log_encryption_summary
 
 # Routers
-from app.api import analysis, upload, report, auth, privacy, data_treatment, dpa_admin
+from app.api import analysis, upload, report, auth, privacy, data_treatment, dpa_admin, monitoring, admin_metrics, feedback
 
 # Configurar logging
 logging.basicConfig(level=logging.INFO)
@@ -31,6 +32,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Configuración de compresión GZIP
+# Comprime respuestas mayores a 1000 bytes para optimizar la transferencia de datos
+app.add_middleware(
+    GZipMiddleware,
+    minimum_size=1000,  # Solo comprimir respuestas mayores a 1KB
+    compresslevel=6     # Nivel de compresión (1-9): 6 es un balance entre velocidad y ratio
+)
+
 # Eventos de la aplicación
 @app.on_event("startup")
 async def startup_event():
@@ -45,7 +54,6 @@ async def startup_event():
         verify_s_rnf2_compliance()
         log_encryption_summary()
         
-        # Inicializar la base de datos
         logger.info("🗄️ Inicializando base de datos...")
         init_db()
         logger.info("✅ Base de datos inicializada correctamente")
@@ -75,6 +83,9 @@ app.include_router(report.router, prefix="/api/v1")
 app.include_router(privacy.router, prefix="/api/v1")
 app.include_router(data_treatment.router, prefix="/api/v1", tags=["data-treatment"])
 app.include_router(dpa_admin.router, prefix="/api/v1", tags=["dpa-admin"])
+app.include_router(monitoring.router, prefix="/api/v1", tags=["monitoring"])
+app.include_router(admin_metrics.router, prefix="/api/v1", tags=["admin-metrics"])
+app.include_router(feedback.router, prefix="/api/v1", tags=["feedback"])
 
 # Endpoints principales
 @app.get("/")
@@ -94,7 +105,9 @@ def root():
             "reports": "/api/v1/report",
             "privacy": "/api/v1/privacy",
             "data_treatment": "/api/v1/data-treatment",
-            "dpa_admin": "/api/v1/dpa-admin"
+            "dpa_admin": "/api/v1/dpa-admin",
+            "monitoring": "/api/v1/monitoring",
+            "admin_metrics": "/api/v1/admin/metrics"
         },
         "compliance": {
             "prf2": "Flujo de solicitudes de privacidad implementado",

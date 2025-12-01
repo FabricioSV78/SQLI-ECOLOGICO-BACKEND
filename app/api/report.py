@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi.responses import FileResponse, JSONResponse
 from sqlalchemy.orm import Session
 from app.services import report_service
 from app.services.dependencies import get_current_user
 from app.services.db_service import get_db
-from app.services.role_checker import check_project_access, validate_report_access
-from app.models.user_role import UserRole
+from app.services.role_checker import check_project_access
+from app.config.config import settings
+import os
 
 router = APIRouter(prefix="/report", tags=["report"])
 
@@ -37,16 +39,16 @@ def get_report(
     try:
         # check_project_access implementa la lógica de SRF2
         project = check_project_access(current_user, project_id, db)
-        
-        # Si llegamos aquí, el usuario tiene permisos para acceder
-        report = report_service.get_report(project_id)
-        
+
+        # Intentar obtener el reporte (desde disco o BD)
+        report = report_service.get_report(project_id, db=db)
+
         if not report:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Reporte no encontrado para este proyecto"
             )
-        
+
         # Agregar información de contexto sobre el acceso
         report["access_info"] = {
             "user_role": current_user.rol.value,
@@ -54,9 +56,9 @@ def get_report(
             "project_owner_id": project.usuario_id,
             "access_type": "full" if current_user.puede_acceder_todos_reportes() else "own_project"
         }
-        
+
         return report
-        
+
     except HTTPException as e:
         # Re-lanzar excepciones HTTP específicas
         raise e
@@ -99,7 +101,7 @@ def list_accessible_reports(
     # Obtener reportes disponibles para cada proyecto
     available_reports = []
     for project in projects:
-        report = report_service.get_report(str(project.id))
+        report = report_service.get_report(str(project.id), db=db)
         if report:
             available_reports.append({
                 "project_id": project.id,
@@ -116,3 +118,39 @@ def list_accessible_reports(
         "reports": available_reports,
         "message": f"Como {current_user.rol.value}, {'puedes ver todos los reportes' if current_user.puede_acceder_todos_reportes() else 'solo puedes ver tus propios reportes'}"
     }
+
+
+
+
+@router.get("/download/{project_id}")
+def download_report(project_id: str, background_tasks: BackgroundTasks, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Descarga el archivo de reporte JSON para el proyecto. Si la configuración
+    `REMOVE_REPORTS_AFTER_DOWNLOAD` está activada, el archivo se eliminará
+    automáticamente en background tras la transferencia.
+    """
+    # Verificar acceso
+    project = check_project_access(current_user, project_id, db)
+
+    report_path = os.path.join(settings.REPORTS_DIR, f"{project_id}_report.json")
+
+    # Si el archivo existe en disco, servirlo y opcionalmente eliminarlo en background
+    if os.path.exists(report_path):
+        def _safe_remove(path: str):
+            try:
+                if os.path.exists(path):
+                    os.remove(path)
+            except Exception:
+                pass
+
+        if settings.REMOVE_REPORTS_AFTER_DOWNLOAD:
+            background_tasks.add_task(_safe_remove, report_path)
+
+        return FileResponse(report_path, media_type="application/json", filename=f"{project_id}_report.json")
+
+    # Si no hay archivo en disco, intentar armar el reporte desde la BD y devolver JSON
+    report = report_service.get_report(project_id, db=db)
+    if report:
+        return JSONResponse(content=report)
+
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Reporte no encontrado")

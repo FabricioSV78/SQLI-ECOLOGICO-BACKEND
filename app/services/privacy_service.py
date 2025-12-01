@@ -14,7 +14,6 @@ from app.models.project import Project
 from app.models.project_file import ProjectFile
 from app.models.vulnerability import Vulnerability
 from app.models.analysis_metrics import AnalysisMetrics
-from app.models.user_role import UserRole
 from app.services.audit_logger import AuditLogger
 
 class PrivacyService:
@@ -29,54 +28,54 @@ class PrivacyService:
 
     # === CREAR SOLICITUDES ===
 
-    def create_access_request(self, user_id: int, description: str = None) -> PrivacyRequest:
+    def create_access_request(self, usuario_id: int, descripcion: str = None) -> PrivacyRequest:
         """
         Crea una solicitud de acceso a datos personales (Art. 15 GDPR).
         El titular tiene derecho a obtener información sobre el tratamiento de sus datos.
         """
         return self._create_request(
-            usuario_id =user_id,
+            usuario_id=usuario_id,
             request_type=PrivacyRequestType.ACCESS,
-            descripcion =description or "Solicitud de acceso a mis datos personales"
+            descripcion=descripcion or "Solicitud de acceso a mis datos personales"
         )
 
-    def create_rectification_request(self, user_id: int, rectification_data: Dict[str, Any], description: str = None) -> PrivacyRequest:
+    def create_rectification_request(self, usuario_id: int, rectification_data: Dict[str, Any], descripcion: str = None) -> PrivacyRequest:
         """
         Crea una solicitud de rectificación de datos personales (Art. 16 GDPR).
         El titular puede solicitar la corrección de datos inexactos.
         """
         return self._create_request(
-            usuario_id =user_id,
+            usuario_id=usuario_id,
             request_type=PrivacyRequestType.RECTIFICATION,
-            descripcion =description or "Solicitud de rectificación de mis datos personales",
+            descripcion=descripcion or "Solicitud de rectificación de mis datos personales",
             rectification_data=json.dumps(rectification_data)
         )
 
-    def create_erasure_request(self, user_id: int, description: str = None) -> PrivacyRequest:
+    def create_erasure_request(self, usuario_id: int, descripcion: str = None) -> PrivacyRequest:
         """
         Crea una solicitud de eliminación/olvido (Art. 17 GDPR).
         El titular puede solicitar la eliminación de sus datos personales.
         """
         return self._create_request(
-            usuario_id =user_id,
+            usuario_id=usuario_id,
             request_type=PrivacyRequestType.ERASURE,
-            descripcion =description or "Solicitud de eliminación de mis datos personales"
+            descripcion=descripcion or "Solicitud de eliminación de mis datos personales"
         )
 
-    def _create_request(self, user_id: int, request_type: PrivacyRequestType, 
-                       description: str, rectification_data: str = None) -> PrivacyRequest:
+    def _create_request(self, usuario_id: int, request_type: PrivacyRequestType, 
+                       descripcion: str, rectification_data: str = None) -> PrivacyRequest:
         """Método interno para crear solicitudes de privacidad"""
         
         # Verificar que el usuario existe
-        usuario = self.db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise ValueError(f"Usuario con ID {user_id} no encontrado")
+        usuario = self.db.query(User).filter(User.id == usuario_id).first()
+        if not usuario:
+            raise ValueError(f"Usuario con ID {usuario_id} no encontrado")
 
         # Crear la solicitud
         request = PrivacyRequest(
-            usuario_id =user_id,
+            usuario_id=usuario_id,
             request_type=request_type,
-            descripcion =description,
+            descripcion=descripcion,
             rectification_data=rectification_data,
             status=PrivacyRequestStatus.PENDING
         )
@@ -86,11 +85,11 @@ class PrivacyService:
         self.db.refresh(request)
 
         # Log de auditoría
-        self.audit_logger.log_privacy_request_created(
-            usuario_id =user_id,
+        """ self.audit_logger.log_privacy_request_created(
+            user_id=usuario_id,
             request_id=request.id,
             request_type=request_type.value
-        )
+        ) """
 
         return request
 
@@ -114,9 +113,9 @@ class PrivacyService:
         
         if user_id:
             # Si se especifica user_id, solo devolver si es su solicitud
-            consulta = query.filter(PrivacyRequest.usuario_id == user_id)
+            consulta = consulta.filter(PrivacyRequest.usuario_id == user_id)
             
-        return query.first()
+        return consulta.first()
 
     # === PROCESAR SOLICITUDES ===
 
@@ -137,16 +136,13 @@ class PrivacyService:
         # Recopilar todos los datos del usuario
         user_data = self._collect_user_data(request.usuario_id)
 
+        # Guardar los datos en formato JSON en la solicitud
+        request.user_data_json = json.dumps(user_data, ensure_ascii=False, indent=2)
+        
         # Marcar como completado
         request.status = PrivacyRequestStatus.COMPLETED
         request.completed_at = datetime.utcnow()
         self.db.commit()
-
-        self.audit_logger.log_privacy_request_processed(
-            request_id=request_id,
-            processor_id=processor_id,
-            action="access_granted"
-        )
 
         return user_data
 
@@ -169,22 +165,10 @@ class PrivacyService:
             
             request.status = PrivacyRequestStatus.COMPLETED
             request.completed_at = datetime.utcnow()
-            
-            self.audit_logger.log_privacy_request_processed(
-                request_id=request_id,
-                processor_id=processor_id,
-                action="rectification_applied"
-            )
+        
         else:
             request.status = PrivacyRequestStatus.REJECTED
             request.rejection_reason = reason
-            
-            self.audit_logger.log_privacy_request_processed(
-                request_id=request_id,
-                processor_id=processor_id,
-                action="rectification_rejected",
-                details=reason
-            )
 
         self.db.commit()
         return approve
@@ -201,31 +185,37 @@ class PrivacyService:
         request.status = PrivacyRequestStatus.IN_PROGRESS
         request.processed_by = processor_id
         request.processed_at = datetime.utcnow()
+        self.db.commit()  # Commit del estado IN_PROGRESS
 
         if approve:
-            # Eliminar todos los datos del usuario
-            self._erase_user_data(request.usuario_id)
-            
+            # Marcar como completado ANTES de eliminar
             request.status = PrivacyRequestStatus.COMPLETED
             request.completed_at = datetime.utcnow()
+            self.db.commit()  # Commit del estado COMPLETED antes de borrar
             
-            self.audit_logger.log_privacy_request_processed(
+            # Registrar en audit log ANTES de eliminar
+            """ self.audit_logger.log_privacy_request_processed(
                 request_id=request_id,
                 processor_id=processor_id,
                 action="data_erased"
-            )
+            ) """
+            
+            # Ahora sí eliminar todos los datos del usuario
+            # NOTA: Esto eliminará la solicitud también, pero ya está registrada
+            self._erase_user_data(request.usuario_id)
         else:
             request.status = PrivacyRequestStatus.REJECTED
             request.rejection_reason = reason
             
-            self.audit_logger.log_privacy_request_processed(
+            """ self.audit_logger.log_privacy_request_processed(
                 request_id=request_id,
                 processor_id=processor_id,
                 action="erasure_rejected",
                 details=reason
-            )
+            ) """
+            
+            self.db.commit()
 
-        self.db.commit()
         return approve
 
     # === MÉTODOS AUXILIARES ===
@@ -233,16 +223,16 @@ class PrivacyService:
     def _collect_user_data(self, user_id: int) -> Dict[str, Any]:
         """Recopila todos los datos personales de un usuario"""
         usuario = self.db.query(User).filter(User.id == user_id).first()
-        if not user:
+        if not usuario:
             return {}
 
         # Datos básicos del usuario
         user_data = {
             "user_info": {
-                "id": user.id,
-                "email": user.correo,
-                "role": user.rol.value if user.rol else None,
-                "created_at": user.fecha_creacion.isoformat() if user.fecha_creacion else None
+                "id": usuario.id,
+                "email": usuario.correo,
+                "role": usuario.rol.value if usuario.rol else None,
+                "created_at": usuario.fecha_creacion.isoformat() if usuario.fecha_creacion else None
             },
             "projects": [],
             "files_uploaded": [],
@@ -307,12 +297,12 @@ class PrivacyService:
     def _apply_rectifications(self, user_id: int, rectification_data: Dict[str, Any]):
         """Aplica rectificaciones a los datos del usuario"""
         usuario = self.db.query(User).filter(User.id == user_id).first()
-        if not user:
+        if not usuario:
             return
 
         # Actualizar campos permitidos
         if "email" in rectification_data:
-            user.correo = rectification_data["email"]
+            usuario.correo = rectification_data["email"]
 
         # Agregar más campos según sea necesario
         # NOTA: No permitir cambio de ID, contrasena(requiere proceso separado), etc.
@@ -350,10 +340,10 @@ class PrivacyService:
         # 4. Eliminar proyectos
         self.db.query(Project).filter(Project.usuario_id == user_id).delete()
 
-        # 5. Eliminar solicitudes de privacidad (excepto la actual)
+        # 5. Eliminar TODAS las solicitudes de privacidad del usuario
+        # (ya hemos marcado la solicitud actual como COMPLETED antes de llamar a este método)
         self.db.query(PrivacyRequest).filter(
-            PrivacyRequest.usuario_id == user_id,
-            PrivacyRequest.status != PrivacyRequestStatus.IN_PROGRESS
+            PrivacyRequest.usuario_id == user_id
         ).delete()
 
         # 6. Finalmente, eliminar el usuario

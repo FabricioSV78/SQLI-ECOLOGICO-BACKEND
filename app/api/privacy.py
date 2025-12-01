@@ -5,16 +5,14 @@ Implementa los derechos GDPR: acceso, rectificación y eliminación
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
-from pydantic import BaseModel, EmailStr
+from typing import List, Dict, Any, Optional
+from pydantic import BaseModel
 from datetime import datetime
 
 from app.services.db_service import get_db
 from app.services.privacy_service import PrivacyService
 from app.services.dependencies import get_current_user, require_admin
 from app.models.user import User
-from app.models.privacy_request import PrivacyRequestType, PrivacyRequestStatus
-from app.models.user_role import UserRole
 
 router = APIRouter(prefix="/privacy", tags=["privacy"])
 
@@ -59,15 +57,15 @@ class PrivacyRequestResponse(BaseModel):
     status: str
     description: str
     created_at: datetime
-    processed_at: datetime = None
-    completed_at: datetime = None
+    processed_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
     is_expired: bool
     user_notified: bool
 
 class ProcessRequestUpdate(BaseModel):
     """Esquema para procesar solicitudes (solo admins)"""
     approve: bool
-    reason: str = None  # Requerido si approve=False
+    reason: Optional[str] = None  # Requerido si approve=False
 
 # === ENDPOINTS PARA USUARIOS (CREAR SOLICITUDES) ===
 
@@ -89,15 +87,15 @@ def create_access_request(
     
     try:
         request = privacy_service.create_access_request(
-            usuario_id =current_user.id,
-            descripcion =request_data.descripcion
+            usuario_id=current_user.id,
+            descripcion=request_data.description
         )
         return PrivacyRequestResponse(
             id=request.id,
             request_type=request.request_type.value,
             status=request.status.value,
-            descripcion =request.descripcion,
-            fecha_creacion =request.fecha_creacion,
+            description=request.descripcion,
+            created_at=request.fecha_creacion,
             processed_at=request.processed_at,
             completed_at=request.completed_at,
             is_expired=request.is_expired(),
@@ -136,17 +134,17 @@ def create_rectification_request(
                 )
         
         request = privacy_service.create_rectification_request(
-            usuario_id =current_user.id,
+            usuario_id=current_user.id,
             rectification_data=request_data.rectification_data,
-            descripcion =request_data.descripcion
+            descripcion=request_data.description
         )
         
         return PrivacyRequestResponse(
             id=request.id,
             request_type=request.request_type.value,
             status=request.status.value,
-            descripcion =request.descripcion,
-            fecha_creacion =request.fecha_creacion,
+            description=request.descripcion,
+            created_at=request.fecha_creacion,
             processed_at=request.processed_at,
             completed_at=request.completed_at,
             is_expired=request.is_expired(),
@@ -186,16 +184,16 @@ def create_erasure_request(
     
     try:
         request = privacy_service.create_erasure_request(
-            usuario_id =current_user.id,
-            descripcion =request_data.descripcion
+            usuario_id=current_user.id,
+            descripcion=request_data.description
         )
         
         return PrivacyRequestResponse(
             id=request.id,
             request_type=request.request_type.value,
             status=request.status.value,
-            descripcion =request.descripcion,
-            fecha_creacion =request.fecha_creacion,
+            description=request.descripcion,
+            created_at=request.fecha_creacion,
             processed_at=request.processed_at,
             completed_at=request.completed_at,
             is_expired=request.is_expired(),
@@ -225,8 +223,8 @@ def get_my_privacy_requests(
             id=req.id,
             request_type=req.request_type.value,
             status=req.status.value,
-            descripcion =req.descripcion,
-            fecha_creacion =req.fecha_creacion,
+            description=req.descripcion,
+            created_at=req.fecha_creacion,
             processed_at=req.processed_at,
             completed_at=req.completed_at,
             is_expired=req.is_expired(),
@@ -257,13 +255,62 @@ def get_privacy_request_detail(
         id=request.id,
         request_type=request.request_type.value,
         status=request.status.value,
-        descripcion =request.descripcion,
-        fecha_creacion =request.fecha_creacion,
+        description=request.descripcion,
+        created_at=request.fecha_creacion,
         processed_at=request.processed_at,
         completed_at=request.completed_at,
         is_expired=request.is_expired(),
         user_notified=request.user_notified
     )
+
+@router.get("/request/{request_id}/data")
+def get_privacy_request_data(
+    request_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Obtener los datos del usuario (JSON) de una solicitud de acceso completada.
+    Solo el usuario propietario de la solicitud puede acceder a sus datos.
+    """
+    privacy_service = PrivacyService(db)
+    request = privacy_service.get_request_by_id(request_id, current_user.id)
+    
+    if not request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Solicitud no encontrada"
+        )
+    
+    # Verificar que sea una solicitud de acceso
+    if request.request_type.value != "access":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Solo las solicitudes de acceso contienen datos del usuario"
+        )
+    
+    # Verificar que la solicitud esté completada
+    if request.status.value != "completed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="La solicitud aún no ha sido procesada"
+        )
+    
+    # Devolver los datos en formato JSON
+    if request.user_data_json:
+        import json
+        return {
+            "request_id": request.id,
+            "status": request.status.value,
+            "processed_at": request.processed_at,
+            "completed_at": request.completed_at,
+            "user_data": json.loads(request.user_data_json)
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No hay datos disponibles para esta solicitud"
+        )
 
 # === ENDPOINTS PARA ADMINISTRADORES ===
 
@@ -283,8 +330,8 @@ def get_pending_privacy_requests(
             id=req.id,
             request_type=req.request_type.value,
             status=req.status.value,
-            descripcion =req.descripcion,
-            fecha_creacion =req.fecha_creacion,
+            description=req.descripcion,
+            created_at=req.fecha_creacion,
             processed_at=req.processed_at,
             completed_at=req.completed_at,
             is_expired=req.is_expired(),

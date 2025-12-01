@@ -4,10 +4,13 @@ from app.models.project import Proyecto, Project
 from app.models.project_file import ArchivoProyecto, ProjectFile
 from app.models.vulnerability import Vulnerabilidad, Vulnerability
 from app.models.analysis_metrics import MetricasAnalisis, AnalysisMetrics
+from app.models.feedback import Feedback
 
 __all__ = [
     # Nombres en español (principales)
     "Usuario", "RolUsuario", "Proyecto", "ArchivoProyecto", "Vulnerabilidad", "MetricasAnalisis",
     # Nombres en inglés (compatibilidad)
-    "User", "UserRole", "Project", "ProjectFile", "Vulnerability", "AnalysisMetrics"
+    "User", "UserRole", "Project", "ProjectFile", "Vulnerability", "AnalysisMetrics",
+    # Feedback
+    "Feedback"
 ]

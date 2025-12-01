@@ -1,6 +1,5 @@
 from sqlalchemy.orm import Session
 from app.models.analysis_metrics import AnalysisMetrics
-from app.models.project import Project
 from typing import Optional, List
 import time
 
@@ -16,7 +15,8 @@ class AnalysisMetricsService:
         tiempo_analisis: float, 
         vulnerabilidades_detectadas: int = 0,
         detecciones_correctas: Optional[int] = None,
-        precision: Optional[float] = None
+        precision: Optional[float] = None,
+        consumo_energetico_kwh: Optional[float] = None
     ) -> AnalysisMetrics:
         """
         Crea una nueva entrada de métricas para un proyecto
@@ -27,20 +27,23 @@ class AnalysisMetricsService:
             vulnerabilidades_detectadas: Cantidad de vulnerabilidades detectadas
             detecciones_correctas: Cantidad de detecciones correctas (opcional, manual)
             precision: Precisión del análisis (opcional)
+            consumo_energetico_kwh: Consumo energético en kWh (opcional, se calcula si no se proporciona)
         
         Returns:
             AnalysisMetrics: La entrada de métricas creada
         """
-        metrics = MetricasAnalisis(
-            id_proyecto=id_proyecto,
+        metrics = AnalysisMetrics(
+            proyecto_id=id_proyecto,  # Usar proyecto_id en lugar de id_proyecto
             tiempo_analisis=tiempo_analisis,
             vulnerabilidades_detectadas=vulnerabilidades_detectadas,
             detecciones_correctas=detecciones_correctas,
-            precision=precision
+            precision=precision,
+            consumo_energetico_kwh=consumo_energetico_kwh or 0.0
         )
         
-        # Calcular el costo automáticamente
-        metrics.calcular_costo()
+        # Calcular el consumo energético automáticamente si no se proporcionó
+        if consumo_energetico_kwh is None:
+            metrics.calcular_consumo_energetico()
         
         self.db.add(metrics)
         self.db.commit()
@@ -59,7 +62,7 @@ class AnalysisMetricsService:
             List[AnalysisMetrics]: Lista de métricas del proyecto
         """
         return self.db.query(AnalysisMetrics).filter(
-            AnalysisMetrics.id_proyecto == id_proyecto
+            AnalysisMetrics.proyecto_id == id_proyecto  # Usar proyecto_id
         ).all()
     
     def get_latest_metrics(self, id_proyecto: int) -> Optional[AnalysisMetrics]:
@@ -73,7 +76,7 @@ class AnalysisMetricsService:
             Optional[AnalysisMetrics]: Las métricas más recientes o None
         """
         return self.db.query(AnalysisMetrics).filter(
-            AnalysisMetrics.id_proyecto == id_proyecto
+            AnalysisMetrics.proyecto_id == id_proyecto  # Usar proyecto_id
         ).order_by(AnalysisMetrics.id.desc()).first()
     
     def update_precision(self, metrics_id: int, precision: float) -> Optional[AnalysisMetrics]:

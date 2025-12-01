@@ -1,7 +1,4 @@
 from sqlalchemy.orm import Session
-from app.models.project import Project
-from app.models.vulnerability import Vulnerability
-from app.models.project_file import ProjectFile
 from fastapi import HTTPException
 import os
 
@@ -9,17 +6,39 @@ def obtener_resultados_analisis_proyecto(proyecto_id: str, usuario_id: int, db: 
     """
     Obtiene los resultados de análisis de un proyecto desde la base de datos.
     Incluye archivos vulnerables, código del archivo, fragmentos vulnerables y predicciones.
+    Los docentes pueden ver proyectos de sus estudiantes.
     """
     from app.models.project import Proyecto
+    from app.models.user import Usuario
     
     # Buscar el proyecto
     if proyecto_id.isdigit():
-        proyecto = db.query(Proyecto).filter(Proyecto.id == int(proyecto_id), Proyecto.usuario_id == usuario_id).first()
+        proyecto = db.query(Proyecto).filter(Proyecto.id == int(proyecto_id)).first()
     else:
-        proyecto = db.query(Proyecto).filter(Proyecto.nombre == proyecto_id, Proyecto.usuario_id == usuario_id).first()
+        proyecto = db.query(Proyecto).filter(Proyecto.nombre == proyecto_id).first()
     
     if not proyecto:
-        raise HTTPException(status_code=404, detail="Proyecto no encontrado para este usuario.")
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado.")
+    
+    # Verificar permisos: el proyecto debe pertenecer al usuario O el usuario debe ser docente que creó al estudiante
+    usuario_actual = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario_actual:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    
+    # Permitir acceso si:
+    # 1. El proyecto pertenece al usuario actual
+    # 2. El usuario es docente y el dueño del proyecto fue creado por este docente
+    es_dueno = proyecto.usuario_id == usuario_id
+    es_docente_del_estudiante = False
+    
+    if usuario_actual.rol == 'docente':
+        # Verificar si el estudiante fue creado por este docente
+        estudiante = db.query(Usuario).filter(Usuario.id == proyecto.usuario_id).first()
+        if estudiante and estudiante.created_by == usuario_id:
+            es_docente_del_estudiante = True
+    
+    if not es_dueno and not es_docente_del_estudiante:
+        raise HTTPException(status_code=403, detail="No tienes permisos para ver este proyecto.")
     
     # Obtener vulnerabilidades y archivos asociados
     from app.models.vulnerability import Vulnerabilidad
@@ -88,16 +107,41 @@ def obtener_resultados_analisis_proyecto(proyecto_id: str, usuario_id: int, db: 
 def obtener_resumen_vulnerabilidades_proyecto(proyecto_id: str, usuario_id: int, db: Session):
     """
     Obtiene un resumen de vulnerabilidades de un proyecto.
+    Los docentes pueden ver proyectos de sus estudiantes.
     """
     from app.models.project import Proyecto
     from app.models.vulnerability import Vulnerabilidad 
     from app.models.project_file import ArchivoProyecto
+    from app.models.user import Usuario
     
     # Buscar el proyecto
     if proyecto_id.isdigit():
-        proyecto = db.query(Proyecto).filter(Proyecto.id == int(proyecto_id), Proyecto.usuario_id == usuario_id).first()
+        proyecto = db.query(Proyecto).filter(Proyecto.id == int(proyecto_id)).first()
     else:
-        proyecto = db.query(Proyecto).filter(Proyecto.nombre == proyecto_id, Proyecto.usuario_id == usuario_id).first()
+        proyecto = db.query(Proyecto).filter(Proyecto.nombre == proyecto_id).first()
+    
+    if not proyecto:
+        raise HTTPException(status_code=404, detail="Proyecto no encontrado.")
+    
+    # Verificar permisos: el proyecto debe pertenecer al usuario O el usuario debe ser docente que creó al estudiante
+    usuario_actual = db.query(Usuario).filter(Usuario.id == usuario_id).first()
+    if not usuario_actual:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado.")
+    
+    # Permitir acceso si:
+    # 1. El proyecto pertenece al usuario actual
+    # 2. El usuario es docente y el dueño del proyecto fue creado por este docente
+    es_dueno = proyecto.usuario_id == usuario_id
+    es_docente_del_estudiante = False
+    
+    if usuario_actual.rol == 'docente':
+        # Verificar si el estudiante fue creado por este docente
+        estudiante = db.query(Usuario).filter(Usuario.id == proyecto.usuario_id).first()
+        if estudiante and estudiante.created_by == usuario_id:
+            es_docente_del_estudiante = True
+    
+    if not es_dueno and not es_docente_del_estudiante:
+        raise HTTPException(status_code=403, detail="No tienes permisos para ver este proyecto.")
     
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado para este usuario.")

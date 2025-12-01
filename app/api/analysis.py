@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from app.core import detector
@@ -10,28 +10,110 @@ from app.services.analysis_service import get_project_analysis_results, get_proj
 from app.services.analysis_metrics_service import AnalysisMetricsService, AnalysisTimer
 from app.services.audit_logger import log_user_action, AuditAction, AuditResult
 from app.models.vulnerability import Vulnerability
+from app.models.project import Proyecto
 import os
+import shutil
+from app.services.energy_monitor import EnergyMonitor
+from app.services.profiler import Profiler
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
 
+@router.get("/all-metrics")
+def get_all_metrics(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Obtiene todas las métricas de análisis de todos los proyectos del usuario.
+    """
+    metrics_service = AnalysisMetricsService(db)
+    all_metrics = metrics_service.get_all_metrics()
+    
+    return {
+        "total_metricas": len(all_metrics),
+        "metricas": [
+            {
+                "id": m.id,
+                "id_proyecto": m.proyecto_id,
+                "tiempo_analisis": m.tiempo_analisis,
+                "consumo_energetico_kwh": m.consumo_energetico_kwh,
+                "detecciones_correctas": m.detecciones_correctas,
+                "vulnerabilidades_detectadas": m.vulnerabilidades_detectadas,
+                "total_archivos_analizados": m.total_archivos_analizados,
+                "porcentaje_vulnerabilidades": m.porcentaje_vulnerabilidades,
+                "precision": m.precision
+            }
+            for m in all_metrics
+        ]
+    }
+
 @router.get("/{project_id}")
-def analizar_proyecto(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db)):
+def analizar_proyecto(project_id: str, current_user = Depends(get_current_user), db: Session = Depends(get_db), profile: int = Query(0, description="Set 1 to enable profiling for this request")):
     """
     Ejecuta el análisis de un proyecto y guarda vulnerabilidades en BD.
     También registra las métricas de análisis automáticamente.
+    Los docentes pueden analizar proyectos de sus estudiantes.
     """
     try:
         # Inicializar servicios
         metrics_service = AnalysisMetricsService(db)
-        
-        # Medir tiempo de análisis
+
+        # Si el proyecto ya fue analizado y tenemos vulnerabilidades en la BD,
+        # devolver los resultados desde la base de datos en lugar de volver a
+        # ejecutar el análisis (evita fallos cuando los archivos temporales
+        # ya no están disponibles tras el procesamiento en save_project_file).
+        try:
+            from app.models.vulnerability import Vulnerabilidad
+            # Determinar proyecto en BD
+            proyecto_obj = None
+            if project_id.isdigit():
+                proyecto_obj = db.query(Proyecto).filter(Proyecto.id == int(project_id)).first()
+            else:
+                proyecto_obj = db.query(Proyecto).filter(Proyecto.nombre == project_id).first()
+
+            if proyecto_obj:
+                # Verificar permisos
+                es_dueno = proyecto_obj.usuario_id == current_user.id
+                es_docente_del_estudiante = False
+                
+                if current_user.rol == 'docente':
+                    from app.models.user import Usuario
+                    estudiante = db.query(Usuario).filter(Usuario.id == proyecto_obj.usuario_id).first()
+                    if estudiante and estudiante.created_by == current_user.id:
+                        es_docente_del_estudiante = True
+                
+                if not es_dueno and not es_docente_del_estudiante:
+                    raise HTTPException(status_code=403, detail="No tienes permisos para analizar este proyecto.")
+                
+                vuln_count = db.query(Vulnerabilidad).filter(Vulnerabilidad.proyecto_id == proyecto_obj.id).count()
+                if vuln_count > 0:
+                    # Ya existen vulnerabilidades registradas; devolver resultados desde la BD
+                    cached_results = get_project_analysis_results(project_id, current_user.id, db)
+                    cached_results["cached_from_db"] = True
+                    return cached_results
+        except HTTPException:
+            raise
+        except Exception:
+            # Si algo falla al consultar la BD para el atajo, continuar con el análisis normal
+            pass
+
+        # Medir tiempo de análisis y estimar consumo energético
+        upload_dir = settings.UPLOAD_DIR
+        enable_profiling = bool(profile) or os.getenv("ENABLE_PROFILING", "false").lower() == "true"
+        profiler_summary = None
+        profiler_files = {}
         with AnalysisTimer() as timer:
-            # Usar siempre la ruta absoluta de uploads
-            upload_dir = settings.UPLOAD_DIR
-            results = detector.run_analysis(project_id, upload_dir, db, current_user.id)
-        
+            with EnergyMonitor() as em:
+                # Usar siempre la ruta absoluta de uploads
+                if enable_profiling:
+                    with Profiler(enabled=True, output_dir=settings.REPORTS_DIR) as pr:
+                        results = detector.run_analysis(project_id, upload_dir, db, current_user.id)
+                    profiler_summary = pr.get_text_summary()
+                    profiler_files["prof_file"] = pr.get_stats_file()
+                    profiler_files["txt_file"] = pr.get_text_file()
+                else:
+                    results = detector.run_analysis(project_id, upload_dir, db, current_user.id)
         # Calcular métricas después del análisis
         analysis_time = timer.get_elapsed_time()
+        # Obtener métricas energéticas estimadas por el análisis
+        energy_metrics = em.get_metrics()
         
         # Contar vulnerabilidades detectadas
         vulnerable_count = db.query(Vulnerability).filter(
@@ -40,7 +122,7 @@ def analizar_proyecto(project_id: str, current_user = Depends(get_current_user),
         ).count()
         
         # 📝 SRF5: Log de análisis exitoso
-        if settings.AUDIT_ENABLED:
+        """ if settings.AUDIT_ENABLED:
             log_user_action(
                 user_id=current_user.id,
                 username=current_user.correo,
@@ -54,31 +136,60 @@ def analizar_proyecto(project_id: str, current_user = Depends(get_current_user),
                     "total_lines_analyzed": sum(f.get('lines_count', 0) for f in results.get('files', []))
                 },
                 audit_dir=settings.AUDIT_DIR
-            )
+            ) """
         
         # Guardar métricas en la base de datos
         try:
+            # Obtener consumo energético del monitor
+            consumo_kwh = energy_metrics.get('total_kwh', 0.0)
+            
             metrics = metrics_service.create_metrics(
                 id_proyecto=int(project_id),
                 tiempo_analisis=analysis_time,
-                vulnerabilidades_detectadas=vulnerable_count
+                vulnerabilidades_detectadas=vulnerable_count,
+                consumo_energetico_kwh=consumo_kwh
             )
             
             # Agregar información de métricas a la respuesta
             results["metricas_analisis"] = {
                 "id": metrics.id,
                 "tiempo_analisis": metrics.tiempo_analisis,
-                "costo": metrics.costo,
+                "consumo_energetico_kwh": metrics.consumo_energetico_kwh,
                 "detecciones_correctas": metrics.detecciones_correctas,
                 "vulnerabilidades_detectadas": metrics.vulnerabilidades_detectadas,
                 "total_archivos_analizados": metrics.total_archivos_analizados,
                 "porcentaje_vulnerabilidades": metrics.porcentaje_vulnerabilidades,
                 "precision": metrics.precision
             }
+            # Añadir métricas energéticas estimadas (no persistidas en BD)
+            try:
+                results["metricas_analisis"]["energia_kwh"] = round(energy_metrics.get("total_kwh", 0.0), 8)
+                results["metricas_analisis"]["emisiones_kg_co2e"] = round(energy_metrics.get("emissions_kg", energy_metrics.get("emissions_kg", energy_metrics.get("emissions_kg", 0.0))), 6) if energy_metrics else 0.0
+                results["metricas_analisis"]["energia_detalle"] = energy_metrics
+                # Añadir resumen y archivos de profiling si existen
+                if profiler_summary:
+                    results["metricas_analisis"]["profiling_summary"] = profiler_summary
+                    results["metricas_analisis"]["profiling_files"] = profiler_files
+            except Exception:
+                # Si algo falla incluyendo métricas energéticas, no interrumpir el flujo
+                pass
             
         except Exception as e:
             # Si hay error guardando métricas, no fallar el análisis
             results["error_metricas"] = f"Error guardando métricas: {str(e)}"
+        # Eliminar archivos subidos del proyecto si la configuración lo indica
+        try:
+            from app.config.config import settings
+            if settings.REMOVE_UPLOADS_AFTER_ANALYSIS:
+                upload_project_dir = os.path.join(settings.UPLOAD_DIR, str(project_id))
+                if os.path.isdir(upload_project_dir):
+                    try:
+                        shutil.rmtree(upload_project_dir)
+                    except Exception:
+                        # Si no se puede eliminar, simplemente ignorar para evitar fallos de análisis
+                        pass
+        except Exception:
+            pass
         
         return results
         
@@ -126,7 +237,19 @@ def get_graph(project_id: str, current_user = Depends(get_current_user), db: Ses
                     },
                     audit_dir=settings.AUDIT_DIR
                 )
-            return FileResponse(image_path, media_type="image/png")
+            # Entregar el archivo y programar su eliminación en background para evitar almacenamiento redundante
+            from fastapi import BackgroundTasks
+            bg = BackgroundTasks()
+            # Añadir tarea en background para eliminar el archivo después de servirlo
+            def _safe_remove(path: str):
+                try:
+                    if os.path.exists(path):
+                        os.remove(path)
+                except Exception:
+                    pass
+
+            bg.add_task(_safe_remove, image_path)
+            return FileResponse(image_path, media_type="image/png", background=bg)
         else:
             # 📝 SRF5: Log de error en descarga
             if settings.AUDIT_ENABLED:
@@ -190,7 +313,7 @@ def get_project_metrics(project_id: str, current_user = Depends(get_current_user
             {
                 "id": m.id,
                 "tiempo_analisis": m.tiempo_analisis,
-                "costo": m.costo,
+                "consumo_energetico_kwh": m.consumo_energetico_kwh,
                 "detecciones_correctas": m.detecciones_correctas,
                 "vulnerabilidades_detectadas": m.vulnerabilidades_detectadas,
                 "total_archivos_analizados": m.total_archivos_analizados,
@@ -217,7 +340,7 @@ def get_latest_project_metrics(project_id: str, current_user = Depends(get_curre
         "metricas": {
             "id": latest_metrics.id,
             "tiempo_analisis": latest_metrics.tiempo_analisis,
-            "costo": latest_metrics.costo,
+            "consumo_energetico_kwh": latest_metrics.consumo_energetico_kwh,
             "detecciones_correctas": latest_metrics.detecciones_correctas,
             "vulnerabilidades_detectadas": latest_metrics.vulnerabilidades_detectadas,
             "total_archivos_analizados": latest_metrics.total_archivos_analizados,
@@ -272,30 +395,4 @@ def update_metrics_detecciones_correctas(
             "id": updated_metrics.id,
             "detecciones_correctas": updated_metrics.detecciones_correctas
         }
-    }
-
-@router.get("/all-metrics")
-def get_all_metrics(current_user = Depends(get_current_user), db: Session = Depends(get_db)):
-    """
-    Obtiene todas las métricas de análisis de todos los proyectos del usuario.
-    """
-    metrics_service = AnalysisMetricsService(db)
-    all_metrics = metrics_service.get_all_metrics()
-    
-    return {
-        "total_metricas": len(all_metrics),
-        "metricas": [
-            {
-                "id": m.id,
-                "id_proyecto": m.id_proyecto,
-                "tiempo_analisis": m.tiempo_analisis,
-                "costo": m.costo,
-                "detecciones_correctas": m.detecciones_correctas,
-                "vulnerabilidades_detectadas": m.vulnerabilidades_detectadas,
-                "total_archivos_analizados": m.total_archivos_analizados,
-                "porcentaje_vulnerabilidades": m.porcentaje_vulnerabilidades,
-                "precision": m.precision
-            }
-            for m in all_metrics
-        ]
     }

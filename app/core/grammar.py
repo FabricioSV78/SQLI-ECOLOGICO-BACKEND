@@ -20,6 +20,10 @@ class SQLListener(JavaParserListener):
     ]
     SQL_ANNOTATIONS = ["@Query", "@NamedQuery", "@Select", "@Insert", "@Update", "@Delete"]
     SQL_KEYWORDS = ["select", "insert", "update", "delete"]
+    # Precompile frequently-used regex patterns to avoid recompilation on each call
+    _KW_ALTERNATION = "|".join(SQL_KEYWORDS)
+    _STRING_SQL_RE = re.compile(r'"([^\"]*(' + _KW_ALTERNATION + r')[^\"]*)"', re.IGNORECASE)
+    _PARAM_RE = re.compile(r'\+([a-zA-Z0-9_]+)')
 
     def __init__(self):
         self.queries = []
@@ -29,16 +33,16 @@ class SQLListener(JavaParserListener):
         # Detecta métodos relevantes
         for method in self.SQL_METHODS:
             if method in text:
-                sql_match = re.search(r'"([^"]*(' + '|'.join(self.SQL_KEYWORDS) + ')[^"]*)"', text, re.IGNORECASE)
+                sql_match = self._STRING_SQL_RE.search(text)
                 if sql_match:
                     sql_query = sql_match.group(1)
-                    params = re.findall(r'\+([a-zA-Z0-9_]+)', text)
+                    params = self._PARAM_RE.findall(text)
                     self.queries.append({
                         "type": "method",
                         "method": method,
                         "sql": sql_query,
                         "params": params,
-                        "line": ctx.start.linea
+                        "line": ctx.start.line
                     })
 
     def enterAnnotation(self, ctx: JavaParser.AnnotationContext):
@@ -46,7 +50,7 @@ class SQLListener(JavaParserListener):
         for annotation in self.SQL_ANNOTATIONS:
             if annotation in text:
                 # Extrae la consulta SQL dentro de la anotación
-                sql_match = re.search(r'\("([^"]*(' + '|'.join(self.SQL_KEYWORDS) + ')[^"]*)"\)', text, re.IGNORECASE)
+                sql_match = self._STRING_SQL_RE.search(text)
                 if sql_match:
                     sql_query = sql_match.group(1)
                     # Detecta si la consulta usa parámetros seguros (#{param}) en MyBatis
@@ -58,7 +62,7 @@ class SQLListener(JavaParserListener):
                         "sql": sql_query,
                         "safe_params": safe_params,
                         "unsafe_params": unsafe_params,
-                        "line": ctx.start.linea
+                        "line": ctx.start.line
                     })
 
 def parse_xml_mybatis(file_path):
@@ -71,7 +75,7 @@ def parse_xml_mybatis(file_path):
             contenido = f.read()
             # Busca etiquetas <select>, <insert>, <update>, <delete>
             for tag in ["select", "insert", "update", "delete"]:
-                for match in re.finditer(rf'<{tag}[^>]*>([\s\S]*?)</{tag}>', content, re.IGNORECASE):
+                for match in re.finditer(rf'<{tag}[^>]*>([\s\S]*?)</{tag}>', contenido, re.IGNORECASE):
                     sql_query = match.group(1).strip()
                     safe_params = re.findall(r'\#\{[a-zA-Z0-9_]+\}', sql_query)
                     unsafe_params = re.findall(r'\$\{[a-zA-Z0-9_]+\}', sql_query)
@@ -110,10 +114,11 @@ def parse_file(file_path: str):
     try:
         with open(file_path, encoding="utf-8") as f:
             lines = f.readlines()
-            # Detecta @Query(value = "...") y @Query("...")
-            pattern_value = re.compile(r'@(Query|NamedQuery|Select|Insert|Update|Delete)\s*\(\s*value\s*=\s*"([^"]*(' + '|'.join(SQLListener.SQL_KEYWORDS) + ')[^"]*)"', re.IGNORECASE)
-            pattern_direct = re.compile(r'@(Query|NamedQuery|Select|Insert|Update|Delete)\s*\(\s*"([^"]*(' + '|'.join(SQLListener.SQL_KEYWORDS) + ')[^"]*)"', re.IGNORECASE)
+            # Precompiled patterns for annotation/plain-text extraction (reuse SQLListener keyword alternation)
+            pattern_value = re.compile(r'@(Query|NamedQuery|Select|Insert|Update|Delete)\s*\(\s*value\s*=\s*"([^\"]*(' + SQLListener._KW_ALTERNATION + r')[^\"]*)"', re.IGNORECASE)
+            pattern_direct = re.compile(r'@(Query|NamedQuery|Select|Insert|Update|Delete)\s*\(\s*"([^\"]*(' + SQLListener._KW_ALTERNATION + r')[^\"]*)"', re.IGNORECASE)
             pattern_concat = re.compile(r'@(Query|NamedQuery|Select|Insert|Update|Delete)\s*\((.*)', re.IGNORECASE)
+            # Detecta @Query(value = "...") y @Query("...")
             for idx, line in enumerate(lines):
                 # value="..."
                 for match in pattern_value.finditer(line):

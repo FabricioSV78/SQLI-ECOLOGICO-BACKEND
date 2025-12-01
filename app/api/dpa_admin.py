@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.services.db_service import get_db
 from app.services.dependencies import get_current_user, require_admin
@@ -9,7 +9,6 @@ from app.config.config import settings
 from typing import List, Optional
 from pydantic import BaseModel
 from datetime import date, datetime
-import os
 
 
 router = APIRouter(prefix="/dpa-admin", tags=["dpa-admin"])
@@ -130,7 +129,7 @@ def create_dpa(
             data_categories_processed=request.data_categories_processed,
             processing_purposes=request.processing_purposes,
             security_measures=request.security_measures,
-            usuario_id =current_user.id,
+            user_id=current_user.id,
             # Campos opcionales
             provider_contact=request.provider_contact,
             provider_address=request.provider_address,
@@ -177,10 +176,10 @@ def create_dpa(
 
 @router.get("/dpa")
 def list_dpas(
-    active_only: bool = Query(True, descripcion ="Solo DPA activos"),
-    provider: Optional[str] = Query(None, descripcion ="Filtrar por proveedor cloud"),
-    location: Optional[str] = Query(None, descripcion ="Filtrar por ubicación de datos"),
-    expiring_soon: Optional[bool] = Query(False, descripcion ="Solo los que vencen pronto"),
+    active_only: bool = Query(True, description="Solo DPA activos"),
+    provider: Optional[str] = Query(None, description="Filtrar por proveedor cloud"),
+    location: Optional[str] = Query(None, description="Filtrar por ubicación de datos"),
+    expiring_soon: Optional[bool] = Query(False, description="Solo los que vencen pronto"),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -321,7 +320,7 @@ def update_dpa(
 @router.patch("/dpa/{dpa_id}/status")
 def change_dpa_status(
     dpa_id: int,
-    new_status: str,
+    new_status: str = Query(..., description="Nuevo estado del DPA"),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -421,7 +420,7 @@ def get_dpa_dashboard(
             log_user_action(
                 user_id=current_user.id,
                 username=current_user.correo,
-                action=AuditAction.VIEW,
+                action=AuditAction.DATA_ACCESS,
                 result=AuditResult.SUCCESS,
                 details={
                     "module": "PRF5_DPA_DASHBOARD",
@@ -469,7 +468,7 @@ def get_data_location_report(
 
 @router.get("/alerts")
 def get_dpa_alerts(
-    days_ahead: int = Query(30, descripcion ="Días para alertas de vencimiento"),
+    days_ahead: int = Query(30, description="Días para alertas de vencimiento"),
     current_user = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -535,17 +534,55 @@ def get_dpa_enums():
     
     Útil para formularios del panel administrativo.
     """
+    # Mapeo de nombres amigables en español
+    cloud_provider_names = {
+        "AWS": "Amazon Web Services (AWS)",
+        "AZURE": "Microsoft Azure",
+        "GCP": "Google Cloud Platform (GCP)",
+        "DIGITALOCEAN": "DigitalOcean",
+        "HEROKU": "Heroku",
+        "VERCEL": "Vercel",
+        "RAILWAY": "Railway",
+        "OTHER": "Otro proveedor"
+    }
+    
+    data_location_names = {
+        "EU": "Unión Europea",
+        "US": "Estados Unidos",
+        "LATAM": "Latinoamérica",
+        "ASIA": "Asia",
+        "GLOBAL": "Global (múltiples regiones)",
+        "ON_PREMISE": "En instalaciones propias"
+    }
+    
+    dpa_status_names = {
+        "DRAFT": "Borrador",
+        "ACTIVE": "Activo",
+        "EXPIRED": "Vencido",
+        "TERMINATED": "Terminado",
+        "SUSPENDED": "Suspendido"
+    }
+    
     return {
         "cloud_providers": [
-            {"value": provider.value, "name": provider.nombre} 
+            {
+                "value": provider.value,
+                "name": cloud_provider_names.get(provider.name, provider.name)
+            }
             for provider in CloudProvider
         ],
         "data_locations": [
-            {"value": location.value, "name": location.nombre}
+            {
+                "value": location.value,
+                "name": data_location_names.get(location.name, location.name)
+            }
             for location in DataLocation
         ],
         "dpa_statuses": [
-            {"value": status.value, "name": status.nombre}
+            {
+                "value": status.value,
+                "name": dpa_status_names.get(status.name, status.name)
+            }
             for status in DpaStatus
         ],
         "transfer_mechanisms": [

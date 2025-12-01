@@ -3,7 +3,7 @@ Modelo para solicitudes de privacidad de datos (GDPR/LOPD)
 Implementa PRF2: Flujo para solicitudes de acceso, rectificación o eliminación
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Enum, Text, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, DateTime, Enum, Text, ForeignKey, Boolean
 from sqlalchemy.orm import relationship
 from app.services.db_service import Base
 from enum import Enum as PyEnum
@@ -52,6 +52,9 @@ class PrivacyRequest(Base):
     
     # Datos específicos para rectificación (JSON string)
     rectification_data = Column(Text, nullable=True)
+    
+    # Datos del usuario para solicitudes de acceso (JSON string con proyectos y datos personales)
+    user_data_json = Column(Text, nullable=True)
     
     # Justificación en caso de rechazo
     rejection_reason = Column(Text, nullable=True)

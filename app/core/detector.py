@@ -1,9 +1,9 @@
 from app.core import grammar, ml_model
+import logging
 from sqlalchemy.orm import Session
-from app.models.project import Project
-from app.models.project_file import ProjectFile
-from app.models.vulnerability import Vulnerability
-from fastapi import HTTPException
+from app.models.project import Proyecto
+from app.models.project_file import ArchivoProyecto  
+from app.models.vulnerability import Vulnerabilidad
 import re
 import os
 
@@ -42,7 +42,8 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
             "parametros_inseguros": [],
             "usados_en_sql": []
         }
-        patrones = ["request.", "input", "param", "getParameter", "@RequestParam", "@PathVariable"]
+        patrones = {"request.", "input", "param", "getParameter", "@RequestParam", "@PathVariable"}
+        # use set membership for faster checks when many patterns
         for p in patrones:
             if p in signature:
                 resultado["patrones"].append(p)
@@ -51,18 +52,19 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
             resultado["concatenacion"] = True
         # Parámetros del método
         metodo_match = re.search(r'(\w+)\s*\(([^)]*)\)', signature)
+        params_set = set(params or [])
         if metodo_match:
             params_firma = metodo_match.group(2)
             param_names = re.findall(r'(\w+)', params_firma)
             for param in param_names:
-                if param.lower() in ["username", "user", "input", "param", "name"]:
+                if param.lower() in {"username", "user", "input", "param", "name"}:
                     resultado["parametros_inseguros"].append(param)
                 # ¿Se usa en la consulta?
-                if param in sql or param in params:
+                if param in sql or param in params_set:
                     resultado["usados_en_sql"].append(param)
         # Parámetros detectados en la consulta
         for param in params:
-            if param.lower() in ["username", "user", "input", "param", "name", "id"]:
+            if param.lower() in {"username", "user", "input", "param", "name", "id"}:
                 resultado["parametros_inseguros"].append(param)
         # Si hay algún hallazgo, es vulnerable
         resultado["es_vulnerable"] = bool(resultado["patrones"] or resultado["concatenacion"] or resultado["parametros_inseguros"])
@@ -72,11 +74,52 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
     from app.core.flow_graph import build_graph
     grafo_vulnerabilidades = None
     vulnerables = classified_results.get("vulnerable", [])
+
+    # Detectar y consolidar entradas duplicadas (mismo archivo, misma línea y misma consulta)
+    logger = logging.getLogger(__name__)
+    dedup_map = {}
+    duplicates_found = []
+
+    def _norm_sql(s: str) -> str:
+        return " ".join((s or "").split())
+
     for consulta in vulnerables:
-        signature = consulta.get("signature") or consulta.get("sql", "")
-        sql = consulta.get("sql", "")
-        params = consulta.get("params", [])
-        consulta["fuente_vulnerable"] = is_vulnerable_source(signature, sql, params)
+        file_path = consulta.get('file', '')
+        line_no = int(consulta.get('line', 0) or 0)
+        sql_text = consulta.get('sql') or consulta.get('signature') or ""
+        key = (file_path, line_no, _norm_sql(sql_text))
+
+        if key not in dedup_map:
+            # store original consulta and list of duplicates
+            dedup_map[key] = {
+                'representative': consulta,
+                'variants': [consulta]
+            }
+        else:
+            dedup_map[key]['variants'].append(consulta)
+
+    # Build final vulnerables list and annotate fuente_vulnerable; log duplicates
+    consolidated = []
+    for key, group in dedup_map.items():
+        rep = group['representative']
+        variants = group['variants']
+        if len(variants) > 1:
+            # Log details for investigation: same file/line but multiple detections
+            try:
+                logger.info(f"[DEDUP] Múltiples detecciones en {key[0]}:{key[1]} -> {len(variants)} entradas")
+                for v in variants:
+                    logger.debug(f"[DEDUP] variante: pred={v.get('prediccion')} sql={_norm_sql(v.get('sql') or v.get('signature') or '')}")
+            except Exception:
+                pass
+            duplicates_found.append({'file': key[0], 'line': key[1], 'count': len(variants)})
+
+        # Use representative for further analysis
+        rep_sql = rep.get('signature') or rep.get('sql', '')
+        params = rep.get('params', [])
+        rep['fuente_vulnerable'] = is_vulnerable_source(rep.get('signature') or rep.get('sql', ''), rep_sql, params)
+        consolidated.append(rep)
+
+    vulnerables = consolidated
 
     # Si hay vulnerabilidades, genera el grafo de flujo
     if vulnerables:
@@ -86,34 +129,53 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
         if db and user_id:
             # Buscar el proyecto en la BD
             if project_id.isdigit():
-                proyecto = db.query(Project).filter(Project.id == int(project_id), Project.usuario_id == user_id).first()
+                proyecto = db.query(Proyecto).filter(Proyecto.id == int(project_id), Proyecto.usuario_id == user_id).first()
             else:
-                proyecto = db.query(Project).filter(Project.nombre == project_id, Project.usuario_id == user_id).first()
+                proyecto = db.query(Proyecto).filter(Proyecto.nombre == project_id, Proyecto.usuario_id == user_id).first()
             
-            if project:
+            if proyecto:
                 # Guardar solo archivos que contienen vulnerabilidades
                 archivos_con_vulnerabilidades = set()
                 
                 for consulta in vulnerables:
                     ruta_archivo = consulta.get('file', '')
-                    if file_path:
-                        archivos_con_vulnerabilidades.add(file_path)
-                        
-                        # Guardar la vulnerabilidad
-                        vulnerability = Vulnerabilidad(
-                            proyecto_id =project.id,
-                            archivo =file_path,
-                            linea =consulta.get('line', 0),
-                            consulta =consulta.get('sql') or consulta.get('signature', ''),
-                            prediccion ='vulnerable'
-                        )
-                        db.add(vulnerability)
+                    if ruta_archivo:
+                        archivos_con_vulnerabilidades.add(ruta_archivo)
+
+                        # Preparar datos de la vulnerabilidad
+                        linea_num = int(consulta.get('line', 0) or 0)
+                        consulta_text = consulta.get('sql') or consulta.get('signature', '')
+
+                        # Evitar insertar duplicados en la BD (mismo proyecto, mismo archivo, misma línea y misma consulta)
+                        existing_vul = db.query(Vulnerabilidad).filter(
+                            Vulnerabilidad.proyecto_id == proyecto.id,
+                            Vulnerabilidad.archivo == ruta_archivo,
+                            Vulnerabilidad.linea == linea_num,
+                            Vulnerabilidad.consulta == consulta_text
+                        ).first()
+
+                        if existing_vul:
+                            # Ya existe la misma vulnerabilidad registrada; saltar
+                            logger = logging.getLogger(__name__)
+                            try:
+                                logger.debug(f"[DB] Vulnerabilidad existente saltada: {ruta_archivo}:{linea_num} - {consulta_text[:80]}")
+                            except Exception:
+                                pass
+                        else:
+                            vulnerability = Vulnerabilidad(
+                                proyecto_id=proyecto.id,
+                                archivo=ruta_archivo,
+                                linea=linea_num,
+                                consulta=consulta_text,
+                                prediccion='vulnerable'
+                            )
+                            db.add(vulnerability)
                 
                 # Guardar archivos que contienen vulnerabilidades (si no existen ya)
                 for file_path in archivos_con_vulnerabilidades:
-                    existing_file = db.query(ProjectFile).filter(
-                        ProjectFile.proyecto_id == project.id,
-                        ProjectFile.ruta_archivo == file_path
+                    existing_file = db.query(ArchivoProyecto).filter(
+                        ArchivoProyecto.proyecto_id == proyecto.id,
+                        ArchivoProyecto.ruta_archivo == file_path
                     ).first()
                     
                     if not existing_file:
@@ -129,10 +191,10 @@ def run_analysis(project_id: str, project_path: str = "uploads/", db: Session = 
                             file_content = f"Error al leer el archivo: {str(e)}"
                         
                         project_file = ArchivoProyecto(
-                            proyecto_id =project.id,
-                            nombre_archivo =filename,
-                            ruta_archivo =file_path,
-                            contenido =file_content
+                            proyecto_id=proyecto.id,
+                            nombre_archivo=nombre_archivo,
+                            ruta_archivo=file_path,
+                            contenido=file_content
                         )
                         db.add(project_file)
                 
